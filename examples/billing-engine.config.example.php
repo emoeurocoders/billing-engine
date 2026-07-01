@@ -16,6 +16,23 @@ return [
         'gateway'  => ['driver' => 'nmi'],
         'mids'     => ['connection' => null, 'table' => 'mids'],
         'schedule' => ['connection' => null, 'table' => 'billing_schedule_sports'],
+        // NegativeDb data source — sports defaults shown; override per vertical.
+        'negative_db' => [
+            'connection' => 'omnistats',
+            'tables' => [
+                'credits'      => 'auth_credits_sports',
+                'chargebacks'  => 'auth_chargebacks_sports',
+                'cancels'      => 'cancels_sports',
+                'bin_block'    => 'sports_bin_block',
+                'blocked'      => 'blocked_members',
+                'transactions' => 'auth_transactions_sports',
+            ],
+            'hard_decline'       => ['106', '107', '111', '112', '123', '164', '165', '201', '264', '460'],
+            'hard_decline_stack' => ['111', '159'],
+            'max_declines'       => 3,
+            'product_udfs'       => ['cc' => ['CC', 'CCC', 'CCR'], 'pp' => ['PP', 'PPC', 'PPR']],
+            'blacklisted_geo'    => [],
+        ],
         'cycle_days' => 30,
         'types' => [
             'rebill' => [
@@ -58,6 +75,19 @@ return [
         'gateway'  => ['driver' => 'inovio'],
         'mids'     => ['connection' => null, 'table' => 'pdf_mids'],
         'schedule' => ['connection' => null, 'table' => 'billing_schedule_pdf'],
+        // Same guard, different tables — this is why negative_db is all config.
+        'negative_db' => [
+            'connection' => 'omnistats',
+            'tables' => [
+                'credits'      => 'auth_credits_pdf',
+                'chargebacks'  => 'auth_chargebacks_pdf',
+                'cancels'      => 'cancels_pdf',
+                'bin_block'    => 'pdf_bin_block',
+                'blocked'      => 'blocked_members',
+                'transactions' => 'auth_transactions_pdf',
+            ],
+            'product_udfs' => ['cc' => ['PDF'], 'pp' => ['PDF']],
+        ],
         'cycle_days' => 30,
         'types' => [
             'rebill' => [

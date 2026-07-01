@@ -59,6 +59,34 @@ The legacy table **name** is resolved per attempt by an app-bound closure
 cross-product naming (`rebill_games_sports`, `rebill_{product}_{stack}`) is handled — see
 `examples/AppServiceProviderWiring.php`.
 
+## `negative_db`
+
+The data source for the built-in `NegativeDb` guard (the do-not-bill gate). **These tables
+differ per vertical/app, so the whole block is config** — override it in each vertical's
+published config. The shipped defaults are the sports tables, so sports works out of the box.
+
+| Key | Default | Purpose |
+|---|---|---|
+| `connection` | `omnistats` | connection the checks query |
+| `tables.credits` | `auth_credits_sports` | credits/refunds table |
+| `tables.chargebacks` | `auth_chargebacks_sports` | chargebacks table |
+| `tables.cancels` | `cancels_sports` | cancelled members |
+| `tables.bin_block` | `sports_bin_block` | blocked BINs |
+| `tables.blocked` | `blocked_members` | blocked members |
+| `tables.transactions` | `auth_transactions_sports` | ledger (hard-decline + decline-count checks) |
+| `columns.*` | legacy names | member/bin/resp/udf/amount/date column names, if they differ per app |
+| `hard_decline` | `106,107,111,112,123,164,165,201,264,460` | in-product permanent-stop codes |
+| `hard_decline_stack` | `111,159` | stack-wide permanent-stop codes (any product) |
+| `max_declines` | `3` | declines since last approval that stop the member |
+| `product_udfs` | `cc/pp → UDF sets` | `card_type → tui_udf02 set` used to scope credit/hard-decline checks |
+| `blacklisted_geo` | `[]` | countries blocked (conversions only) |
+
+A hit returns **DEAD** (row never retried), in the same order as the legacy `negativeDb()`.
+An app can bind `billing.negativeDb` to replace the built-in checks entirely. See
+[guards.md](guards.md#negative_db--the-built-in-do-not-bill-gate). Note: the legacy
+`rescueDecline()` FlexCharge side effect is intentionally **not** run in the guard (guards
+are read-only; they also run under `--dry-run`).
+
 ## `gateway`
 
 | Key | Default | Values |

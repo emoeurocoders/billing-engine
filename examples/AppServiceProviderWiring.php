@@ -32,10 +32,15 @@ class BillingServiceProvider extends ServiceProvider
         $this->app->singleton(MidResolver::class, \App\Billing\SportsMidBalancerAdapter::class);
 
         // 3. Guard closures — keep vertical-specific SQL in the app.
-        $this->app->instance('billing.negativeDb', function (string $memberId): ?string {
-            // return a reason string to hard-stop, or null to pass
-            return null; // ... your negativeDb() logic
-        });
+        //
+        // negative_db is now a BUILT-IN, config-driven guard: set the tables /
+        // columns / code lists in config('billing-engine.negative_db') and you do
+        // NOT need this closure. Only bind it to REPLACE the built-in checks with
+        // fully custom logic — it receives the BillingContext:
+        //
+        // $this->app->instance('billing.negativeDb', function (\Omni\BillingEngine\Support\BillingContext $ctx): ?string {
+        //     return null; // reason string to hard-stop, or null to pass
+        // });
 
         $this->app->instance('billing.sameDayCheck', function (string $memberId): bool {
             return OmniTransaction::where('cust_id_ext', $memberId)

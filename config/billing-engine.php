@@ -67,6 +67,59 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Negative database (do-not-bill gate)
+    |--------------------------------------------------------------------------
+    | The NegativeDb guard's data source. Every table/column/code list lives
+    | here because these differ per vertical/app (sports → auth_credits_sports /
+    | sports_bin_block, pdf → its own equivalents, ...). Override the whole block
+    | in each vertical's published config. Leave `connection` null to use the
+    | default. An app may instead bind `billing.negativeDb` to replace the checks.
+    */
+    'negative_db' => [
+        'connection' => env('BILLING_NEGDB_CONNECTION', 'omnistats'),
+
+        // Per-vertical table names.
+        'tables' => [
+            'credits'      => 'auth_credits_sports',
+            'chargebacks'  => 'auth_chargebacks_sports',
+            'cancels'      => 'cancels_sports',
+            'bin_block'    => 'sports_bin_block',
+            'blocked'      => 'blocked_members',
+            'transactions' => 'auth_transactions_sports',
+        ],
+
+        // Per-vertical column names (only override the ones that differ).
+        'columns' => [
+            'member'        => 'cust_id_ext',   // member id on credits/transactions
+            'cb_member'     => 'customerid',     // member id on chargebacks
+            'cancel_member' => 'member_id',      // member id on cancels
+            'block_member'  => 'customer_id',    // member id on blocked table
+            'bin'           => 'bin',            // bin column on the bin_block table
+            'resp'          => 'resp_id',        // response/decline code on transactions
+            'udf'           => 'tui_udf02',      // product udf on credits/transactions
+            'amount'        => 'tr_amount',      // amount on credits/transactions
+            'date'          => 'tr_date',        // ordering column on transactions
+            'ledger_bin'    => 'bankbin',        // bin column on the transactions ledger
+            'credit_type'   => 'ttype_name',     // transaction-type column on credits
+        ],
+
+        // Decline codes that permanently stop a member (canonical resp_id values).
+        'hard_decline'       => ['106', '107', '111', '112', '123', '164', '165', '201', '264', '460'],
+        // Stack-wide hard declines checked across ALL products.
+        'hard_decline_stack' => ['111', '159'],
+        // Declines since the last approval that trigger a permanent stop.
+        'max_declines'       => 3,
+        // card_type → the product UDF set used to scope the credit / hard-decline checks.
+        'product_udfs'       => [
+            'cc' => ['CC', 'CCC', 'CCR'],
+            'pp' => ['PP', 'PPC', 'PPR'],
+        ],
+        // Countries blocked for conversions (legacy noStepDownGeo / blackListedGeo).
+        'blacklisted_geo'    => [],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Gateway
     |--------------------------------------------------------------------------
     | 'nmi' (3 verticals) or 'inovio' (3 verticals). The bound GatewayClient

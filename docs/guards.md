@@ -46,27 +46,58 @@ Order matters — put cheap/decisive guards first. Remove a key to drop a rule; 
 |---|---|---|---|
 | `already_attempted` | `AlreadyAttempted` | DEAD if approved this cycle, SKIP if declined | `AttemptLogger` |
 | `same_day` | `SameDay` | SKIP if an approved tx exists today | `billing.sameDayCheck` closure |
-| `negative_db` | `NegativeDb` | DEAD with reason | `billing.negativeDb` closure |
+| `negative_db` | `NegativeDb` | DEAD with reason | **built-in, config-driven** (`billing-engine.negative_db`) |
 | `max_declines` | `MaxDeclines` | DEAD at the decline ceiling | `billing.declineCount` closure |
 | `mid_cap` | `MidCap` | SKIP if no usable sticky MID | `MidResolver` |
 | `conversion_rebill` | `ConversionRebill` | SKIP if already converted/rebilled this window | `billing.conversionRebill` closure |
 
-### Why closures for the data-driven guards
+### `negative_db` — the built-in do-not-bill gate
 
-`SameDay`, `NegativeDb`, `MaxDeclines`, and `ConversionRebill` need vertical-specific SQL
-against tables the package shouldn't know about (the ledger, fraud lists, etc.). Rather than
-hardcode those queries, each resolves an **app-bound closure** if present, and passes
-through (`pass()`) if not. The app binds them in a service provider:
+`NegativeDb` is a full, faithful port of the legacy `NMIBilling::negativeDb()` — it runs the
+do-not-bill checks itself, in the same order, and returns **DEAD** on the first hit (the
+row is never retried, matching the legacy `k1=2`):
+
+1. `credit` — a non-VOID credit/refund (amount ≠ 2) on this product
+2. `chargeback` — the member has a chargeback
+3. `cancel` — the member is in the cancels table
+4. `bin_block` — the member's card BIN is blocked
+5. `block` — the member is in the blocked-members table
+6. `hard_decline` (in-product) — a prior hard-decline code on this product
+7. `hard_decline` (stack) — a stack-wide hard-decline code on any product
+8. `blacklisted_geo` — conversions only, country on the block list
+9. `max_declines` — declines since the last approval ≥ the ceiling
+
+**Everything is config, because these tables differ per vertical/app.** The connection,
+table names, column names, decline-code lists, `max_declines`, the `card_type → product
+UDF` map and the blacklisted-geo list all come from the `billing-engine.negative_db` block
+— see [configuration.md](configuration.md#negative_db). Override that block in each
+vertical's published config; nothing needs a code change. The built-in defaults are the
+sports tables (`auth_credits_sports`, `sports_bin_block`, …) so sports works out of the box.
+
+> **Deliberate deviation:** the legacy `negativeDb()` also fired `rescueDecline()` — a real
+> FlexCharge charge — as a side effect when a member was over the decline ceiling. That is
+> **not** done inside the guard: guards must be read-only, because they also run under
+> `billing:dispatch --dry-run`, where issuing a charge would bill people during a preview.
+> Rescue-decline should be wired as a post-decline step/listener instead.
+
+An app can still bind `billing.negativeDb` to **replace** the built-in checks entirely; when
+bound it takes over and receives the `BillingContext`:
+
+```php
+$this->app->instance('billing.negativeDb', fn (BillingContext $ctx): ?string => /* reason|null */);
+```
+
+### Why closures for the other data-driven guards
+
+`SameDay`, `MaxDeclines`, and `ConversionRebill` still need vertical-specific SQL against
+tables the package shouldn't hardcode. Each resolves an **app-bound closure** if present,
+and passes through (`pass()`) if not:
 
 ```php
 $this->app->instance('billing.sameDayCheck', fn (string $memberId): bool => /* ... */);
-$this->app->instance('billing.negativeDb',  fn (string $memberId): ?string => /* reason|null */);
 $this->app->instance('billing.declineCount', fn (string $memberId, string $type): int => /* ... */);
 $this->app->instance('billing.conversionRebill', fn (string $memberId): bool => /* ... */);
 ```
-
-This keeps the package free of any vertical's schema while preserving the exact legacy
-checks.
 
 ## Writing a custom guard
 
