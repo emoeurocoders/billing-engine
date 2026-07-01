@@ -67,6 +67,32 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Backfill / seed source
+    |--------------------------------------------------------------------------
+    | Table names the app's seed generator (billing.seedSource) reads when
+    | materialising the schedule from the legacy ledger. These differ per
+    | vertical/app, so they live here — change them and the same seed generator
+    | works for another app. (The package's SeedScheduleCommand never reads these;
+    | only the app generator does — see examples/SeedSourceProvider.php.)
+    */
+    'seed' => [
+        'connection' => env('BILLING_SEED_CONNECTION', 'omnistats'),
+        'sources' => [
+            'transactions' => 'auth_transactions_sports', // rebillCC / rebillPP ledger
+            'tickets'      => 'auth_tickets_sports',       // rebillSettles source
+            'attempts'     => 'rebill_sports',             // already-billed-this-cycle reconcile
+        ],
+        // tui_udf02 sets that map to each card type (source filter).
+        'udf2' => [
+            'cc' => ['CCC', 'CCR'],
+            'pp' => ['PPC', 'PPR'],
+        ],
+        // rebillSettles amounts on the tickets table.
+        'settle_amounts' => [34.55, 29.55, 19.55],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Negative database (do-not-bill gate)
     |--------------------------------------------------------------------------
     | The NegativeDb guard's data source. Every table/column/code list lives

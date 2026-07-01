@@ -117,6 +117,22 @@ implements the decrypt. Set `az.tokens.table` per vertical. See
 [gateways.md](gateways.md#the-az-stored-card-path). Card `exp` and `billing` come from the
 vault or the seeded row `meta`.
 
+## `seed`
+
+The ledger tables the app's seed generator (`billing.seedSource`) reads when backfilling the
+schedule. These differ per vertical/app, so they're config — point them at another app's
+tables and the same generator works. (The package's `SeedScheduleCommand` never reads these;
+only the app generator does — see `examples/SeedSourceProvider.php`.)
+
+| Key | Default | Purpose |
+|---|---|---|
+| `connection` | `omnistats` | connection the seed queries run on |
+| `sources.transactions` | `auth_transactions_sports` | rebillCC / rebillPP ledger |
+| `sources.tickets` | `auth_tickets_sports` | rebillSettles source |
+| `sources.attempts` | `rebill_sports` | attempt log for the already-billed-this-cycle reconcile |
+| `udf2.cc` / `udf2.pp` | `[CCC,CCR]` / `[PPC,PPR]` | `tui_udf02` sets mapped to each card type |
+| `settle_amounts` | `[34.55, 29.55, 19.55]` | rebillSettles amounts on the tickets table |
+
 ## `queue`
 
 | Key | Default | Purpose |
