@@ -96,6 +96,27 @@ are read-only; they also run under `--dry-run`).
 The concrete gateway library instance is bound by the app as `billing.gatewayClient`; the
 driver selects which adapter wraps it.
 
+## `az`
+
+The stored-card ("AZ") charge path (legacy `getAzKey()`). When a bound `CardVault` resolves a
+card for a member, the handler charges it via `doCharge` instead of the token `doRebill`.
+
+| Key | Default | Purpose |
+|---|---|---|
+| `enabled` | `true` | master switch; `false` → always token rebill (even if a vault is bound) |
+| `udf_3` | `AZ` | tag sent on stored-card charges |
+| `order_desc` | `null` | `setOrder` description; `null` → the uppercased vertical name |
+| `tokens.connection` | `omnistats` | connection of the stored-card token table |
+| `tokens.table` | `sports_tokens` | **the token table — different per vertical/app** |
+| `tokens.columns.member` | `user_id` | token-row column holding the member id |
+
+The vault itself is app-bound (`CardVault::class`); the package default is `NullCardVault`
+(no stored cards). The token **table name is config, not a hardcoded model** —
+`AbstractTokenCardVault` reads the token row from `az.tokens`, and the app subclass only
+implements the decrypt. Set `az.tokens.table` per vertical. See
+[gateways.md](gateways.md#the-az-stored-card-path). Card `exp` and `billing` come from the
+vault or the seeded row `meta`.
+
 ## `queue`
 
 | Key | Default | Purpose |

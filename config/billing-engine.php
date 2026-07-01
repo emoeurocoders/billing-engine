@@ -132,6 +132,34 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Stored-card ("AZ") charge path
+    |--------------------------------------------------------------------------
+    | When a bound CardVault resolves a stored card for a member, the handler
+    | charges it via the gateway card path (doCharge) instead of the token
+    | rebill (doRebill) — the legacy getAzKey() flow. Turn `enabled` off to force
+    | token rebills everywhere (or simply don't bind a CardVault). `order_desc`
+    | null → the uppercased vertical name.
+    */
+    'az' => [
+        'enabled'    => env('BILLING_AZ_ENABLED', true),
+        'udf_3'      => env('BILLING_AZ_UDF3', 'AZ'),
+        'order_desc' => env('BILLING_AZ_ORDER_DESC', null),
+
+        // The stored-card token table — DIFFERENT per vertical/app (sports →
+        // sports_tokens, pdf → its own). AbstractTokenCardVault reads the token
+        // row from here; the app subclass only implements decrypt(). Override the
+        // table/connection/column per vertical; the decrypt scheme stays app code.
+        'tokens' => [
+            'connection' => env('BILLING_AZ_TOKENS_CONNECTION', 'omnistats'),
+            'table'      => env('BILLING_AZ_TOKENS_TABLE', 'sports_tokens'),
+            'columns'    => [
+                'member' => 'user_id', // token-row column holding the member id
+            ],
+        ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Queue
     |--------------------------------------------------------------------------
     */

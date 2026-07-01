@@ -45,7 +45,8 @@ final public function handle(BillingContext $ctx): void
 |---|---|---|
 | `resolveMid(ctx)` | sticky if `selection=sticky`, else rotation | custom pool/selection logic |
 | `buildPayload(ctx, mid)` | canonical payload (amount, mid, member, descriptor, UDFs) | extra fields (AZ token, custom UDFs) |
-| `charge(ctx, payload)` | `gateway->rebill()` | use `charge()` (card data) or `capture()` (settle) |
+| `charge(ctx, payload)` | stored-card `charge()` if a card resolves, else `gateway->rebill()` | force one path, or `capture()` (settle) |
+| `resolveCard(ctx)` | the bound `CardVault` (default: none) | custom stored-card lookup |
 | `onApproved(ctx, mid, r)` | emit `BillingSucceeded` | post-approval side-effects in-handler |
 | `onDeclined(ctx, mid, r)` | emit `BillingDeclined` | post-decline side-effects |
 | `scheduleNext(ctx, r)` | approve → next cycle; decline → step-down rung if one applies, else defer/dead | custom cadence |
@@ -54,12 +55,34 @@ final public function handle(BillingContext $ctx): void
 Terminal helpers (`finishGuarded`, `defer`, `resultDetails`) are also overridable but rarely
 need to be.
 
+## The `charge` hook — token rebill vs stored-card
+
+`charge()` is the faithful port of the legacy `if ($az) { doCharge } else { doRebill }`:
+
+```php
+protected function charge(BillingContext $ctx, array $payload): GatewayResult
+{
+    if ($card = $this->resolveCard($ctx)) {                 // CardVault → stored card?
+        return $this->gateway->charge($this->withCard($ctx, $payload, $card));
+    }
+    return $this->gateway->rebill($payload);                // else token rebill
+}
+```
+
+`resolveCard()` asks the bound `CardVault` (default `NullCardVault` → always `null`, so the
+token path) and honours the `az.enabled` master switch. When a card resolves, `withCard()`
+folds the PAN/CVV/exp, `udf_3`, and the `order`/`billing` context into the payload, and the
+adapter's `charge()` runs `setOrder`/`setBilling`/`doCharge`. This applies to every sticky
+type (`rebill`, crosses, the settles rebill). Full detail:
+[gateways.md](gateways.md#the-az-stored-card-path).
+
 ## Shipped handlers
 
 ### `RebillHandler` (`rebill`)
-Empty subclass — the base flow *is* the rebill flow. Sticky MID, `rebill()` charge, next
-cycle on approval. Covers `rebillCC` and `rebillPP` (card type/amount come from the row,
-UDFs from config).
+Empty subclass — the base flow *is* the rebill flow. Sticky MID, next cycle on approval,
+and the token-rebill-or-stored-card `charge()` above. Covers `rebillCC` and `rebillPP` (card
+type/amount come from the row, UDFs from config); with a bound `CardVault` it also covers the
+AZ `doCharge` path those methods had.
 
 ### `CrossHandler` (`cross1`, `cross2`)
 Structurally identical to `rebill` — an empty subclass. Its only differences (a step-down

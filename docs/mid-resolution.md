@@ -46,6 +46,26 @@ active, status, cross1, cross2, daily_caps, cc_cards, pp_cards, rebills_only`). 
 few extras the rebill path doesn't use, so **no per-table column map is needed** — the
 default resolver null-coalesces the optional columns.
 
+### The engine reads the SOURCE `mids` table — not the legacy `sports_mids` copy
+
+The legacy rebill code selected from `omnistats.sports_mids`, a copy of the source `mids`
+table kept in sync by the `UpdateMids` command (`processor_id=1`, with the MID's `stack`
+mapped onto `cross1`/`cross2`). The engine reads the **source** `mids` table directly, which
+is equivalent — so the `UpdateMids` sync can be retired per vertical after cutover.
+
+Crucially, the runtime counter columns that only exist on `sports_mids` — `count`,
+`count_declines`, `hard_cap`, `weekly_sales`, `daily_volume` — are **deliberately not
+replicated**. They were the legacy per-MID capping/health mechanism, and they are exactly
+what the mid-balancer's `RebillDailyStats` replaces. So:
+
+- **MID config / selection** → the source `mids` table (`DirectMidResolver`, or the sports
+  adapter for balancer-backed selection).
+- **MID caps + decline health** (legacy `count >= hard_cap`, `count_declines < max_declines`)
+  → the **mid-balancer** (`RebillDailyStats` + `MidBalancer::recordRebillResult`), via the
+  sports adapter — *not* a `sports_mids` column read/write.
+
+There is nothing to wire for the old `sports_mids` counters.
+
 ## Default: `DirectMidResolver`
 
 Reads the configured table directly. Works with **no mid-balancer present**.
@@ -116,6 +136,7 @@ protected function resolveMid(BillingContext $ctx): ?MidDecision
 
 After every charge, `handle()` calls `MidResolver::recordResult(...)` with normalised
 details (decline code, bank response code, decline reason, transaction id). For the
-mid-balancer adapter this updates `rebills_daily_stats`; for `DirectMidResolver` it's a
-no-op. This is also where you'd increment any legacy MID counters during a transition
-period if you choose to keep them temporarily.
+mid-balancer adapter this updates `rebills_daily_stats` (the replacement for the legacy
+`sports_mids` counters); for `DirectMidResolver` it's a no-op. The old `sports_mids`
+`count`/`count_declines`/`daily_volume` columns are intentionally left behind — see
+"[The engine reads the SOURCE `mids` table](#the-engine-reads-the-source-mids-table--not-the-legacy-sports_mids-copy)".

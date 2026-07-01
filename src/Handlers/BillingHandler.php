@@ -5,6 +5,7 @@ namespace Omni\BillingEngine\Handlers;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Event;
 use Omni\BillingEngine\Contracts\AttemptLogger;
+use Omni\BillingEngine\Contracts\CardVault;
 use Omni\BillingEngine\Contracts\GatewayClient;
 use Omni\BillingEngine\Contracts\MidResolver;
 use Omni\BillingEngine\Events\BillingAttempting;
@@ -17,6 +18,7 @@ use Omni\BillingEngine\Models\BillingSchedule;
 use Omni\BillingEngine\Pipeline\GuardRunner;
 use Omni\BillingEngine\StepDown\StepDownPlanner;
 use Omni\BillingEngine\Support\BillingContext;
+use Omni\BillingEngine\Support\CardData;
 use Omni\BillingEngine\Support\GatewayResult;
 use Omni\BillingEngine\Support\GuardResult;
 use Omni\BillingEngine\Support\MidDecision;
@@ -38,6 +40,7 @@ abstract class BillingHandler
         protected AttemptLogger $log,
         protected GuardRunner $guards,
         protected StepDownPlanner $stepDown,
+        protected CardVault $vault,
     ) {}
 
     final public function handle(BillingContext $ctx): void
@@ -102,21 +105,67 @@ abstract class BillingHandler
     /** Canonical payload; gateway adapter translates to NMI/Inovio keys. */
     protected function buildPayload(BillingContext $ctx, MidDecision $mid): array
     {
+        $meta = $ctx->row->meta ?? [];
+
         return [
             'amount'       => $ctx->amount(),
             'mid_id'       => $mid->midId,
             'member_id'    => $ctx->memberId(),
             'source_tr_id' => $ctx->row->source_tr_id,
             'descriptor'   => $mid->descriptor,
-            'udf_1'        => $ctx->row->meta['udf_1'] ?? null,
+            'udf_1'        => $meta['udf_1'] ?? null,
             'udf_2'        => $ctx->typeConfig['udf2'] ?? null,
+            // Risk/routing fields the legacy doRebill also sent (from seeded meta).
+            'ip'           => $meta['ip'] ?? null,
+            'country'      => $meta['country'] ?? ($meta['tui_bill_country'] ?? null),
+            'device'       => $meta['device'] ?? ($meta['affiliate'] ?? null),
         ];
     }
 
-    /** Default charge path: rebill. SettleHandler overrides with capture(). */
+    /**
+     * Default charge path. Mirrors the legacy `if($az){ doCharge }else{ doRebill }`:
+     * if a stored ("AZ") card resolves for this member, charge it via the gateway's
+     * card path; otherwise rebill the token. SettleHandler overrides with capture().
+     */
     protected function charge(BillingContext $ctx, array $payload): GatewayResult
     {
+        if ($card = $this->resolveCard($ctx)) {
+            return $this->gateway->charge($this->withCard($ctx, $payload, $card));
+        }
+
         return $this->gateway->rebill($payload);
+    }
+
+    /**
+     * Resolve a stored card for this member, or null to use the token rebill path.
+     * Honours the `az.enabled` master switch so a vertical can turn the whole
+     * stored-card flow off without unbinding its vault.
+     */
+    protected function resolveCard(BillingContext $ctx): ?CardData
+    {
+        if (!config('billing-engine.az.enabled', true)) {
+            return null;
+        }
+
+        return $this->vault->resolve($ctx);
+    }
+
+    /** Fold stored-card data into the canonical charge payload (adds order + billing). */
+    protected function withCard(BillingContext $ctx, array $payload, CardData $card): array
+    {
+        $az = (array) config('billing-engine.az', []);
+
+        $payload['card_number'] = $card->cardNumber;
+        $payload['cvv']         = $card->cvv;
+        $payload['card_exp']    = $card->cardExp ?? ($ctx->row->meta['card_exp'] ?? null);
+        $payload['udf_3']       = $card->meta['udf_3'] ?? ($az['udf_3'] ?? 'AZ');
+        $payload['billing']     = $card->billing ?: ($ctx->row->meta['billing'] ?? []);
+        $payload['order']       = [
+            'order_id'   => $card->meta['order_id'] ?? null, // adapter defaults if null
+            'order_desc' => $card->meta['order_desc'] ?? ($az['order_desc'] ?: strtoupper($ctx->vertical)),
+        ];
+
+        return $payload;
     }
 
     protected function onApproved(BillingContext $ctx, MidDecision $mid, GatewayResult $r): void

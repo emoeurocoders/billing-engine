@@ -27,7 +27,10 @@ class InovioGateway implements GatewayClient
 
     public function charge(array $payload): GatewayResult
     {
-        return $this->result($this->client->doCharge($this->mapPayload($payload)));
+        // Stored-card ("AZ") path. Inovio's card charge differs from NMI (no
+        // separate setOrder/setBilling); the card fields are folded into the
+        // doCharge payload. Refine when an Inovio vertical migrates the AZ flow.
+        return $this->result($this->client->doCharge($this->mapChargePayload($payload)));
     }
 
     public function capture(string $transactionRef): GatewayResult
@@ -49,6 +52,24 @@ class InovioGateway implements GatewayClient
             'cust_id' => $p['member_id'] ?? null,
             'udf_1'   => $p['udf_1'] ?? null,
             'udf_2'   => $p['udf_2'] ?? null,
+            'country' => $p['country'] ?? null,
+            'ip'      => $p['ip'] ?? null,
+        ], fn ($v) => $v !== null);
+    }
+
+    /** Stored-card charge payload (doCharge). */
+    private function mapChargePayload(array $p): array
+    {
+        return array_filter([
+            'amount'      => $p['amount'] ?? null,
+            'mid_id'      => $p['mid_id'] ?? null,
+            'cust_id'     => $p['member_id'] ?? null,
+            'card_number' => $p['card_number'] ?? null,
+            'cvv'         => $p['cvv'] ?? null,
+            'card_exp'    => $p['card_exp'] ?? null,
+            'udf_1'       => $p['udf_1'] ?? null,
+            'udf_2'       => $p['udf_2'] ?? null,
+            'udf_3'       => $p['udf_3'] ?? null,
         ], fn ($v) => $v !== null);
     }
 

@@ -5,7 +5,9 @@ namespace Omni\BillingEngine;
 use Illuminate\Support\ServiceProvider;
 use Omni\BillingEngine\Console\Commands\DispatchCommand;
 use Omni\BillingEngine\Console\Commands\SeedScheduleCommand;
+use Omni\BillingEngine\Cards\NullCardVault;
 use Omni\BillingEngine\Contracts\AttemptLogger;
+use Omni\BillingEngine\Contracts\CardVault;
 use Omni\BillingEngine\Contracts\GatewayClient;
 use Omni\BillingEngine\Contracts\MidResolver;
 use Omni\BillingEngine\Gateways\InovioGateway;
@@ -32,6 +34,10 @@ class BillingEngineServiceProvider extends ServiceProvider
         // Default contract bindings — a vertical overrides any of these in its
         // own provider (e.g. bind its own MidResolver / gateway client).
         $this->app->singleton(MidResolver::class, DirectMidResolver::class);
+
+        // Stored-card ("AZ") vault. Default = none (everyone rebills the token);
+        // sports binds its own SportsCardVault (VodTokens + Vault + Crypt).
+        $this->app->singleton(CardVault::class, NullCardVault::class);
 
         // Attempt logging. By default we DUAL-WRITE the engine-owned unified
         // table + the legacy per-type tables, reading from `log.read_from`.

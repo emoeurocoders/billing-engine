@@ -31,6 +31,14 @@ class BillingServiceProvider extends ServiceProvider
         //    default direct-table resolver.
         $this->app->singleton(MidResolver::class, \App\Billing\SportsMidBalancerAdapter::class);
 
+        // 2b. Stored-card ("AZ") vault — the getAzKey() flow. Bind it so members
+        //     with a vaulted card are charged via doCharge; without it everyone
+        //     rebills the token. Master switch: config('billing-engine.az.enabled').
+        $this->app->singleton(
+            \Omni\BillingEngine\Contracts\CardVault::class,
+            \App\Billing\SportsCardVault::class
+        );
+
         // 3. Guard closures — keep vertical-specific SQL in the app.
         //
         // negative_db is now a BUILT-IN, config-driven guard: set the tables /

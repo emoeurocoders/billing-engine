@@ -29,10 +29,27 @@ Handlers build a **canonical** payload; each adapter translates it to its gatewa
 | `mid_id` | `mid_id` | `mid_id` |
 | `descriptor` | `descriptor` | — |
 | `udf_1` / `udf_2` | `udf_1` / `udf_2` | `udf_1` / `udf_2` |
+| `ip` / `country` / `device` | `ip` / `country` / `device` | `ip` / `country` |
 
 `buildPayload()` (a handler hook) emits the canonical keys; the adapter's `mapPayload()`
 drops/renames as needed. To add a gateway-specific field, override `buildPayload()` in a
-vertical handler and read it in a custom adapter.
+vertical handler and read it in a custom adapter. `ip` / `country` / `device` come from the
+schedule row's seeded `meta`.
+
+### Stored-card ("AZ") charge payload
+
+When a stored card resolves (see [the AZ path](#the-az-stored-card-path)), the charge payload
+carries the extra card + context keys the gateway `doCharge` path needs:
+
+| Canonical key | Meaning |
+|---|---|
+| `card_number` / `cvv` / `card_exp` | decrypted PAN, CVV, `MMYY` expiry |
+| `udf_3` | tag for the stored-card path (default `AZ`) |
+| `billing` | `setBilling()` fields (`uid`, `email`, `first_name`, `last_name`, `zip`, `country`, `ip`, `device`) |
+| `order` | `setOrder()` fields (`order_id`, `order_desc`) |
+
+`NmiGateway::charge()` calls `setOrder()` + `setBilling()` (when present) and then `doCharge()`
+via `mapChargePayload()` — mirroring the legacy AZ block exactly.
 
 ## Normalised result
 
@@ -103,4 +120,36 @@ Nothing in the handlers, guards, or schedule changes.
 Some gateway calls need order/billing context set before the charge (the legacy code calls
 `setOrder()` / `setBilling()`). Do that inside the adapter's `rebill`/`charge` using fields
 from the payload, or have the app's bound library instance pre-configured — keeping that
-glue in the adapter, not the handler.
+glue in the adapter, not the handler. `NmiGateway::charge()` already does this for the AZ
+path from the payload's `order` / `billing` keys.
+
+## The AZ (stored-card) path
+
+Some members are billed from a **stored card** (decrypted PAN + CVV) via `doCharge`, not a
+token `doRebill` — the legacy `getAzKey()` flow. The engine models this with a small seam:
+
+- **`CardVault` contract** — `resolve(BillingContext): ?CardData`. Returns the member's card
+  or `null`. The package ships **`NullCardVault`** (always `null` → token rebill) and
+  **`AbstractTokenCardVault`**, a base that reads the token row from a **config-driven table**
+  (`az.tokens` — different per vertical) so a vertical's vault only implements `decrypt()`.
+  Sports binds **`SportsCardVault extends AbstractTokenCardVault`** (Vault + Crypt decrypt +
+  ledger exp/billing — see `examples/SportsCardVault.php`). The token **table name is config,
+  not a hardcoded model**; the vault/decrypt specifics stay in the app.
+- **`CardData`** — `cardNumber`, `cvv`, `cardExp` (`MMYY`), `billing[]`, `meta[]`.
+- **`BillingHandler::charge()`** — the faithful `if ($az) { doCharge } else { doRebill }`:
+  resolves a card, and if present charges it (folding in `udf_3` + order + billing), else
+  rebills the token. Runs for every sticky type (`rebill`, crosses, the settles rebill).
+
+Controlled by the `az` config block:
+
+```php
+'az' => [
+    'enabled'    => env('BILLING_AZ_ENABLED', true), // master switch (off → always token rebill)
+    'udf_3'      => 'AZ',
+    'order_desc' => null,                             // null → uppercased vertical
+],
+```
+
+Turn `az.enabled` off (or simply don't bind a `CardVault`) for any vertical without stored
+cards. See [configuration.md](configuration.md#az) and
+[handlers.md](handlers.md#the-charge-hook--token-rebill-vs-stored-card).
