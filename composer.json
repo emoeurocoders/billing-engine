@@ -1,0 +1,36 @@
+{
+    "name": "omni/billing-engine",
+    "description": "Scheduled card-billing engine (rebills, cross-rebills, conversions, settlements) — gateway- and vertical-agnostic.",
+    "type": "library",
+    "license": "proprietary",
+    "autoload": {
+        "psr-4": {
+            "Omni\\BillingEngine\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Omni\\BillingEngine\\Tests\\": "tests/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Omni\\BillingEngine\\BillingEngineServiceProvider"
+            ]
+        }
+    },
+    "require": {
+        "php": "^8.0",
+        "illuminate/support": "^9.0|^10.0|^11.0",
+        "illuminate/database": "^9.0|^10.0|^11.0",
+        "illuminate/bus": "^9.0|^10.0|^11.0",
+        "illuminate/console": "^9.0|^10.0|^11.0"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^9.5|^10.0",
+        "orchestra/testbench": "^7.0|^8.0|^9.0"
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true
+}
