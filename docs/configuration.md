@@ -87,6 +87,24 @@ An app can bind `billing.negativeDb` to replace the built-in checks entirely. Se
 `rescueDecline()` FlexCharge side effect is intentionally **not** run in the guard (guards
 are read-only; they also run under `--dry-run`).
 
+## `conversion_rebill`
+
+Data source for the `ConversionRebill` guard (legacy `conversionRebill()`): **SKIP** a member
+who already has an approved ledger transaction in this product's UDF set within the current
+cycle window. Config because these tables differ per vertical; sports defaults shown.
+
+| Key | Default | Purpose |
+|---|---|---|
+| `connection` | `omnistats` | connection the check queries |
+| `table` | `auth_transactions_sports` | the ledger table |
+| `columns.member` / `resp` / `udf` | `cust_id_ext` / `resp_id` / `tui_udf02` | member / approval-flag / product-UDF columns |
+| `columns.date` | `tr_date_only` | date-only column the window filters on |
+| `product_udfs.cc` / `pp` | `[CC,CCC,CCR]` / `[PP,PPC,PPR]` | `card_type → tui_udf02` set to scope the check |
+| `cycle_days` | `null` | window length; `null` → the global `cycle_days` |
+
+Returns **SKIP** (defer to next cycle). An app can bind `billing.conversionRebill` to replace
+the built-in check. See [guards.md](guards.md#conversion_rebill--the-built-in-already-billed-this-cycle-gate).
+
 ## `gateway`
 
 | Key | Default | Values |

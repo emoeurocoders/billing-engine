@@ -57,7 +57,11 @@ class BillingServiceProvider extends ServiceProvider
                 ->exists();
         });
 
-        $this->app->instance('billing.conversionRebill', fn (string $memberId): bool => false);
+        // conversion_rebill is now a BUILT-IN, config-driven guard: set its table /
+        // columns / product_udfs in config('billing-engine.conversion_rebill'); you
+        // do NOT need this closure. Only bind it to REPLACE the built-in check:
+        //
+        // $this->app->instance('billing.conversionRebill', fn (\Omni\BillingEngine\Support\BillingContext $ctx): bool => false);
 
         $this->app->instance('billing.declineCount', function (string $memberId, string $type): int {
             return OmniTransaction::where('cust_id_ext', $memberId)

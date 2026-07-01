@@ -146,6 +146,32 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Conversion / rebill gate
+    |--------------------------------------------------------------------------
+    | The ConversionRebill guard's data source (legacy conversionRebill()). SKIP a
+    | member who already has an APPROVED ledger transaction in this product's UDF
+    | set within the current cycle window. Per-vertical tables, so it's config;
+    | sports defaults shown. `cycle_days` null → the global cycle_days. An app may
+    | bind `billing.conversionRebill` to replace the built-in check.
+    */
+    'conversion_rebill' => [
+        'connection' => env('BILLING_CONVREB_CONNECTION', 'omnistats'),
+        'table'      => 'auth_transactions_sports',
+        'columns' => [
+            'member' => 'cust_id_ext',
+            'resp'   => 'resp_id',
+            'udf'    => 'tui_udf02',
+            'date'   => 'tr_date_only',   // date-only column used for the window
+        ],
+        'product_udfs' => [
+            'cc' => ['CC', 'CCC', 'CCR'],
+            'pp' => ['PP', 'PPC', 'PPR'],
+        ],
+        'cycle_days' => null,             // null → global billing-engine.cycle_days
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Gateway
     |--------------------------------------------------------------------------
     | 'nmi' (3 verticals) or 'inovio' (3 verticals). The bound GatewayClient

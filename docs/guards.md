@@ -49,7 +49,7 @@ Order matters — put cheap/decisive guards first. Remove a key to drop a rule; 
 | `negative_db` | `NegativeDb` | DEAD with reason | **built-in, config-driven** (`billing-engine.negative_db`) |
 | `max_declines` | `MaxDeclines` | DEAD at the decline ceiling | `billing.declineCount` closure |
 | `mid_cap` | `MidCap` | SKIP if no usable sticky MID | `MidResolver` |
-| `conversion_rebill` | `ConversionRebill` | SKIP if already converted/rebilled this window | `billing.conversionRebill` closure |
+| `conversion_rebill` | `ConversionRebill` | SKIP if already approved in the ledger this cycle | **built-in, config-driven** (`billing-engine.conversion_rebill`) |
 
 ### `negative_db` — the built-in do-not-bill gate
 
@@ -87,16 +87,28 @@ bound it takes over and receives the `BillingContext`:
 $this->app->instance('billing.negativeDb', fn (BillingContext $ctx): ?string => /* reason|null */);
 ```
 
+### `conversion_rebill` — the built-in "already billed this cycle" gate
+
+`ConversionRebill` ports the legacy `conversionRebill()`: it **SKIPs** a member who already
+has an **approved ledger transaction** (`resp_id=0`) in this product's UDF set within the
+current cycle window. It reads the **ledger**, unlike `already_attempted` (which reads the
+`rebill_*` attempt log) — so it catches members already billed this cycle through a different
+path that never wrote a rebill-log row.
+
+Config-driven via `billing-engine.conversion_rebill` (`connection`, `table`, `columns`,
+`product_udfs`, `cycle_days`) — sports tables are the defaults; see
+[configuration.md](configuration.md#conversion_rebill). Bind `billing.conversionRebill` to
+replace the built-in check entirely (closure receives the `BillingContext`, returns `bool`).
+
 ### Why closures for the other data-driven guards
 
-`SameDay`, `MaxDeclines`, and `ConversionRebill` still need vertical-specific SQL against
-tables the package shouldn't hardcode. Each resolves an **app-bound closure** if present,
-and passes through (`pass()`) if not:
+`SameDay` and `MaxDeclines` still need vertical-specific SQL against tables the package
+shouldn't hardcode. Each resolves an **app-bound closure** if present, and passes through
+(`pass()`) if not:
 
 ```php
 $this->app->instance('billing.sameDayCheck', fn (string $memberId): bool => /* ... */);
 $this->app->instance('billing.declineCount', fn (string $memberId, string $type): int => /* ... */);
-$this->app->instance('billing.conversionRebill', fn (string $memberId): bool => /* ... */);
 ```
 
 ## Writing a custom guard
