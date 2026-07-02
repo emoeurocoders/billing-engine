@@ -2,9 +2,11 @@
 
 namespace Omni\BillingEngine;
 
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\ServiceProvider;
 use Omni\BillingEngine\Console\Commands\DispatchCommand;
 use Omni\BillingEngine\Console\Commands\SeedScheduleCommand;
+use Omni\BillingEngine\Logging\BillingLogSubscriber;
 use Omni\BillingEngine\Cards\NullCardVault;
 use Omni\BillingEngine\Contracts\AttemptLogger;
 use Omni\BillingEngine\Contracts\CardVault;
@@ -107,5 +109,11 @@ class BillingEngineServiceProvider extends ServiceProvider
         }
 
         $this->loadMigrationsFrom(__DIR__ . '/../database/migrations');
+
+        // Full per-action audit trail (SUCCESS/DECLINE/SKIP/DEAD/STEPDOWN) to the
+        // configured log channel — the replacement for the legacy log() file.
+        if (config('billing-engine.logging.enabled', true)) {
+            Event::subscribe(BillingLogSubscriber::class);
+        }
     }
 }

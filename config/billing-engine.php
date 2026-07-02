@@ -349,8 +349,29 @@ return [
         ],
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Logging (per-action audit trail)
+    |--------------------------------------------------------------------------
+    | When enabled, BillingLogSubscriber writes a line for EVERY action
+    | (ATTEMPTING/SUCCESS/DECLINE/SKIP/DEAD/STEPDOWN) to `channel` — the
+    | replacement for the legacy log() file. Point `channel` at a DEDICATED log
+    | channel (define one in config/logging.php) so billing gets its own rotating
+    | file, e.g.:
+    |
+    |   // config/logging.php → 'channels'
+    |   'billing' => [
+    |       'driver' => 'daily',
+    |       'path'   => storage_path('logs/billing/billing.log'),
+    |       'days'   => 90,
+    |       'level'  => 'debug',   // 'debug' includes ATTEMPTING; 'info' = outcomes only
+    |   ],
+    |
+    | then set BILLING_LOG_CHANNEL=billing. Every charge is ALSO recorded in the
+    | DB attempt log (billing_attempts_{vertical} + legacy tables) regardless.
+    */
     'logging' => [
-        'enabled' => true,
-        'channel' => env('BILLING_LOG_CHANNEL', 'stack'),
+        'enabled' => env('BILLING_LOG_ENABLED', true),
+        'channel' => env('BILLING_LOG_CHANNEL', null), // null = the app's default channel
     ],
 ];

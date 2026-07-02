@@ -77,6 +77,17 @@ class DispatchCommand extends Command
         }
 
         $this->info("Claimed and dispatched {$ids->count()} rows.");
+
+        if (config('billing-engine.logging.enabled', true)) {
+            $channel = config('billing-engine.logging.channel');
+            $logger  = $channel ? \Illuminate\Support\Facades\Log::channel($channel) : \Illuminate\Support\Facades\Log::channel();
+            $logger->info("dispatch: claimed and dispatched {$ids->count()} rows", [
+                'claim_run' => $claimId,
+                'types'     => $types ?: 'all',
+                'count'     => $ids->count(),
+            ]);
+        }
+
         return self::SUCCESS;
     }
 

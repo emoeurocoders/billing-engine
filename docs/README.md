@@ -20,6 +20,7 @@ Detailed reference for the `omni/billing-engine` package. Start with
 | [extending.md](extending.md) | The layered extensibility model — which mechanism for which difference |
 | [migrating-a-vertical.md](migrating-a-vertical.md) | Step-by-step cutover from the legacy command |
 | [events.md](events.md) | The five billing events and how to listen |
+| [logging.md](logging.md) | The audit trail — DB attempt log + per-action file log (every SKIP/DEAD/charge) |
 
 ## Conventions used in these docs
 
