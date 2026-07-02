@@ -28,6 +28,7 @@ is true. Actions logged:
 |---|---|---|
 | `ATTEMPTING` | debug | `rebill cc member=30282522 amount=34.55 ATTEMPTING` |
 | `SUCCESS` | info | `rebill cc member=30282522 amount=34.55 SUCCESS mid=ssyn… tr=9912837` |
+| `SUCCESS` (redirect) | info | `rebill cc member=30282522 amount=34.55 SUCCESS mid=ssyn… redirect_from=deadmid tr=9912837` |
 | `DECLINE` | info | `rebill cc member=441 amount=34.55 DECLINE mid=sbmo… code=104` |
 | `SKIP` | info | `rebill cc member=9181365 amount=19.55 SKIP reason=no_usable_mid` |
 | `DEAD` | info | `rebill cc member=36663514 amount=34.55 DEAD reason=negative_db:credit` |
@@ -36,6 +37,22 @@ is true. Actions logged:
 Each line also carries a **structured context array** (`member_id`, `type`, `card`, `amount`,
 `cycle`, `schedule_id`, `vertical`, plus per-action fields like `decline_code`,
 `raw_decline_code`, `transaction_id`, `reason`) — so a JSON channel gives you queryable fields.
+
+### Verifying MID redirects
+
+The schedule row carries the member's original sticky `mid_id`. When a MID is closed the
+resolver follows its `redirect_mid` and charges the **live** target instead — but the row is
+never rewritten. So every `SUCCESS`/`DECLINE` line makes the substitution explicit by comparing
+the resolved MID against the row's original:
+
+- **Redirect fired** — `mid={resolved} redirect_from={original}`; context adds
+  `mid_original` + `redirect=true`. This is the line to grep when checking a redirect is working:
+  `grep 'redirect_from=' billing.log` shows every member the redirect actually diverted, and to
+  which live MID.
+- **Step-down MID change** — `mid={resolved} mid_via={strategy} from={original}` (context
+  `mid_original` + `mid_via`), when the change came from a step-down rung (`meta.mid_strategy`
+  = `match`/`new`) rather than a sticky redirect.
+- **No change** — just `mid={resolved}` (the common case; original and resolved match).
 
 ### Setup — a dedicated rotating file
 

@@ -10,6 +10,7 @@ use Omni\BillingEngine\Events\BillingSkipped;
 use Omni\BillingEngine\Events\BillingSteppedDown;
 use Omni\BillingEngine\Events\BillingSucceeded;
 use Omni\BillingEngine\Support\BillingContext;
+use Omni\BillingEngine\Support\MidDecision;
 
 /**
  * Writes a log line for EVERY billing action to the configured channel — the
@@ -33,23 +34,25 @@ class BillingLogSubscriber
 
     public function onSucceeded(BillingSucceeded $e): void
     {
-        $this->write('info', $e->ctx, 'SUCCESS', "mid={$e->mid->midId} tr={$e->result->transactionId}", [
+        $mid = $this->midInfo($e->ctx, $e->mid);
+
+        $this->write('info', $e->ctx, 'SUCCESS', "{$mid['label']} tr={$e->result->transactionId}", array_merge([
             'result'         => 'success',
-            'mid'            => $e->mid->midId,
             'transaction_id' => $e->result->transactionId,
-        ]);
+        ], $mid['context']));
     }
 
     public function onDeclined(BillingDeclined $e): void
     {
-        $this->write('info', $e->ctx, 'DECLINE', "mid={$e->mid->midId} code={$e->result->responseCode}", [
+        $mid = $this->midInfo($e->ctx, $e->mid);
+
+        $this->write('info', $e->ctx, 'DECLINE', "{$mid['label']} code={$e->result->responseCode}", array_merge([
             'result'           => 'decline',
-            'mid'              => $e->mid->midId,
             'decline_code'     => $e->result->responseCode,
             'raw_decline_code' => $e->result->raw['response_code'] ?? null,
             'decline_reason'   => $e->result->responseText,
             'transaction_id'   => $e->result->transactionId,
-        ]);
+        ], $mid['context']));
     }
 
     public function onSkipped(BillingSkipped $e): void
@@ -84,6 +87,38 @@ class BillingLogSubscriber
             BillingDead::class        => 'onDead',
             BillingSteppedDown::class => 'onSteppedDown',
         ];
+    }
+
+    /**
+     * Build the MID clause + context, making REDIRECTS visible. The resolver
+     * follows redirect_mid internally and returns the final MID; the ORIGINAL
+     * sticky MID is still on the schedule row. When they differ:
+     *   - normal sticky   → `redirect_from={original}` (a redirect fired)
+     *   - a step-down MID  → `mid_via={strategy} from={original}` (match/new rung)
+     *
+     * @return array{label:string,context:array}
+     */
+    private function midInfo(BillingContext $ctx, MidDecision $mid): array
+    {
+        $resolved = $mid->midId;
+        $original = $ctx->midId();
+        $label    = "mid={$resolved}";
+        $context  = ['mid' => $resolved];
+
+        if ($original && $original !== $resolved) {
+            $strategy = $ctx->row->meta['mid_strategy'] ?? null;
+            $context['mid_original'] = $original;
+
+            if ($strategy) {
+                $label .= " mid_via={$strategy} from={$original}";
+                $context['mid_via'] = $strategy;
+            } else {
+                $label .= " redirect_from={$original}";
+                $context['redirect'] = true;
+            }
+        }
+
+        return ['label' => $label, 'context' => $context];
     }
 
     private function write(string $level, BillingContext $ctx, string $result, string $detail = '', array $extra = []): void
