@@ -79,8 +79,9 @@ return [
         'connection' => env('BILLING_SEED_CONNECTION', 'omnistats'),
         'sources' => [
             'transactions' => 'auth_transactions_sports', // rebillCC / rebillPP ledger
-            'tickets'      => 'auth_tickets_sports',       // rebillSettles source
+            'tickets'      => 'auth_tickets_sports',       // rebillSettles source (a rebill)
             'attempts'     => 'rebill_sports',             // already-billed-this-cycle reconcile
+            'auths'        => 'auth_only_sports',          // settle (capture) + convert enrolment
         ],
         // tui_udf02 sets that map to each card type (source filter).
         'udf2' => [
@@ -89,6 +90,11 @@ return [
         ],
         // rebillSettles amounts on the tickets table.
         'settle_amounts' => [34.55, 29.55, 19.55],
+
+        // One-shot enrolment timing (daily seeds). Due = auth_date + N days.
+        'settle_after_days' => 2,      // capture a full auth N days later (settleAuths)
+        'convert_days'      => 5,      // convert a $0 auth N days later (convertInitials)
+        'convert_amount'    => 29.55,  // conversion charge amount (cc_convert_amount)
     ],
 
     /*
@@ -180,6 +186,16 @@ return [
     */
     'gateway' => [
         'driver' => env('BILLING_GATEWAY', 'nmi'), // nmi|inovio
+
+        // Decline-code normalisation OVERRIDES, per driver, merged over the
+        // adapter's built-in map. The complete legacy NMIBilling::$response_codes
+        // ships inside NmiGateway, so this is only for additions/changes without
+        // touching the package (e.g. a new processor code). Example:
+        //   'code_maps' => ['nmi' => ['470' => '104'], 'inovio' => ['610' => '105']],
+        'code_maps' => [
+            'nmi'    => [],
+            'inovio' => [],
+        ],
     ],
 
     /*

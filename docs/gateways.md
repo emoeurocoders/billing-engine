@@ -71,14 +71,29 @@ for anything that needs gateway detail (e.g. the mid-balancer adapter pulls
 
 ## Decline-code normalisation
 
-Each gateway maps its raw codes to the canonical set the rest of the system uses (the same
-map the legacy `NMIBilling::$response_codes` used). `NmiGateway` and `InovioGateway` each
-hold a `CODE_MAP`; extend them (or make the map config-driven) as you encounter codes:
+Each gateway maps its raw codes to the canonical set the rest of the system uses. `NmiGateway`
+ships the **complete** legacy `NMIBilling::$response_codes` (all 35 entries) as its built-in
+`DEFAULT_MAP`, so stored `decline_code`s match legacy out of the box. `normaliseDeclineCode()`
+merges any config overrides on top and passes unmapped codes through unchanged (legacy
+behaviour):
 
 ```php
-// NmiGateway
-private const CODE_MAP = ['201' => '104', '202' => '105', '250' => '109', /* ... */];
+return array_replace(self::DEFAULT_MAP, config('billing-engine.gateway.code_maps.nmi', []))[$raw] ?? $raw;
 ```
+
+Add or change entries per driver in config — no package edit needed:
+
+```php
+'gateway' => [
+    'code_maps' => [
+        'nmi'    => ['470' => '104'],   // additions / overrides merged over DEFAULT_MAP
+        'inovio' => ['610' => '105'],
+    ],
+],
+```
+
+`InovioGateway` ships only the known essentials (`100 → 0`, `600 → 106`); supply the full
+Inovio map via `code_maps.inovio` when an Inovio vertical migrates.
 
 ## The adapters wrap the app's library
 

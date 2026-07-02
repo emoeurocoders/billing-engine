@@ -13,8 +13,12 @@ use Omni\BillingEngine\Support\GatewayResult;
  */
 class InovioGateway implements GatewayClient
 {
-    /** Inovio service_response → canonical decline code. Extend via config. */
-    private const CODE_MAP = [
+    /**
+     * Inovio service_response → canonical decline code. Only the known essentials
+     * ship as defaults; the full Inovio map should be supplied per vertical via
+     * `billing-engine.gateway.code_maps.inovio` when an Inovio vertical migrates.
+     */
+    private const DEFAULT_MAP = [
         '100' => '0', '600' => '106', // 600 = CVV decline
     ];
 
@@ -40,7 +44,17 @@ class InovioGateway implements GatewayClient
 
     public function normaliseDeclineCode(?string $rawCode): ?string
     {
-        return self::CODE_MAP[$rawCode] ?? $rawCode;
+        if ($rawCode === null) {
+            return null;
+        }
+
+        return $this->map()[$rawCode] ?? $rawCode; // unmapped → passthrough
+    }
+
+    /** Built-in map with config overrides merged on top. */
+    private function map(): array
+    {
+        return array_replace(self::DEFAULT_MAP, (array) config('billing-engine.gateway.code_maps.inovio', []));
     }
 
     private function mapPayload(array $p): array

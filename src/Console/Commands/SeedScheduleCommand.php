@@ -8,21 +8,28 @@ use Illuminate\Support\Facades\DB;
 use Omni\BillingEngine\Models\BillingSchedule;
 
 /**
- * One-time (re-runnable) backfill: materialise the legacy "reconstructed every
- * run" rebill population into billing_schedule_{vertical}, WITHOUT double
- * billing anyone mid-cycle.
+ * Backfill / enrolment: materialise a billing population into
+ * billing_schedule_{vertical}, WITHOUT double billing anyone. Re-runnable
+ * (insertOrIgnore on the unique key), so it is safe to run:
+ *   - ONCE for recurring rebills (the standing population), and
+ *   - DAILY on a schedule for one-shot settle/convert enrolment (new auths
+ *     crossing their +N-day mark each day).
  *
- *   billing:seed-schedule {vertical} [--type=rebill] [--dry-run] [--spread-hours=6]
+ *   billing:seed-schedule {vertical} [--type=settle] [--dry-run] [--spread-hours=6]
  *
  * Vertical-specific SQL lives in the app, exposed as a generator closure bound
- * to 'billing.seedSource'. It must yield candidate arrays already deduped to
- * one row per member per billing_type (latest success), shaped:
+ * to 'billing.seedSource'. It yields candidate arrays:
  *   ['member_id','billing_type','card_type','source_tr_id','mid_id','amount',
- *    'anchor_date' (latest success date), 'already_billed_this_cycle' (bool),
- *    'dead' (bool), 'meta' (array)]
+ *    'meta' (array),
+ *    // recurring (rebill): the engine computes the due date + key
+ *    'anchor_date','already_billed_this_cycle' (bool),'dead' (bool),
+ *    // one-shot (settle/convert): the source dictates BOTH explicitly
+ *    'next_action_at' (exact due = auth_date + N days),
+ *    'idempotency_key' ({member}:{type}:{source_tr_id} — per-auth, NOT per-cycle)]
  *
- * The engine owns: cycle math, idempotency key, backlog spread, insertOrIgnore,
- * and the parity counts printed at the end.
+ * When the source supplies `next_action_at` / `idempotency_key`, they are used
+ * verbatim; otherwise the engine falls back to cycle math + the cycle key. The
+ * engine always owns backlog spread, insertOrIgnore, and the parity counts.
  */
 class SeedScheduleCommand extends Command
 {
@@ -58,10 +65,17 @@ class SeedScheduleCommand extends Command
         foreach ($source($vertical, (array) $this->option('type')) as $row) {
             $stats['seen']++;
 
-            $type    = $row['billing_type'];
-            $anchor  = Carbon::parse($row['anchor_date']);
-            $dueAt   = $anchor->copy()->addDays($cycleDays);
-            $status  = BillingSchedule::STATUS_PENDING;
+            $type   = $row['billing_type'];
+            $status = BillingSchedule::STATUS_PENDING;
+
+            // Due date: explicit from the source (one-shot settle/convert:
+            // auth_date + N days), else cycle math off the anchor (recurring).
+            if (!empty($row['next_action_at'])) {
+                $dueAt = Carbon::parse($row['next_action_at']);
+            } else {
+                $typeCycleDays = (int) config("billing-engine.types.{$type}.cycle_days", $cycleDays);
+                $dueAt = Carbon::parse($row['anchor_date'] ?? $now->toDateTimeString())->addDays($typeCycleDays);
+            }
 
             if (!empty($row['dead'])) {
                 $status = BillingSchedule::STATUS_DEAD;
@@ -74,10 +88,13 @@ class SeedScheduleCommand extends Command
                 $stats['pending']++;
             }
 
-            // Spread the genuine backlog so the first dispatch doesn't flood.
+            // Spread the genuine backlog so a run doesn't flood the gateway.
             if ($status === BillingSchedule::STATUS_PENDING && $dueAt->lessThan($now)) {
                 $dueAt = $now->copy()->addSeconds(($overdue++ * $spread) % $spread + random_int(0, 300));
             }
+
+            // Key: explicit per-auth (one-shot) else the per-cycle rebill key.
+            $idempotencyKey = $row['idempotency_key'] ?? "{$row['member_id']}:{$type}:{$cycle}";
 
             $buffer[] = [
                 'member_id'       => $row['member_id'],
@@ -89,7 +106,7 @@ class SeedScheduleCommand extends Command
                 'next_action_at'  => $dueAt,
                 'status'          => $status,
                 'cycle'           => $cycle,
-                'idempotency_key' => "{$row['member_id']}:{$type}:{$cycle}",
+                'idempotency_key' => $idempotencyKey,
                 'meta'            => json_encode($row['meta'] ?? []),
                 'created_at'      => $now,
                 'updated_at'      => $now,

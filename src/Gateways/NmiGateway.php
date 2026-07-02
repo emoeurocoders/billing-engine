@@ -15,11 +15,48 @@ use Omni\BillingEngine\Support\GatewayResult;
  */
 class NmiGateway implements GatewayClient
 {
-    /** NMI response_code → canonical decline code (from NMIBilling::$response_codes). */
-    private const CODE_MAP = [
-        '100' => '0', '200' => '157', '201' => '104', '202' => '105', '203' => '105',
-        '204' => '165', '223' => '107', '225' => '106', '250' => '109', '440' => '154',
-        '410' => '407', // extend from config as needed
+    /**
+     * NMI response_code → canonical decline code. The COMPLETE legacy
+     * NMIBilling::$response_codes map, shipped in code so it's faithful out of
+     * the box. Per-driver additions/overrides come from
+     * `billing-engine.gateway.code_maps.nmi` and are merged on top — see map().
+     */
+    private const DEFAULT_MAP = [
+        '0'   => '0',   // refund approved
+        '100' => '0',   // approved
+        '200' => '157', // declined by processor
+        '201' => '104', // do not honor
+        '202' => '105', // insufficient funds
+        '203' => '105', // over limit
+        '204' => '165', // transaction not allowed
+        '220' => '159', // incorrect payment information
+        '221' => '221', // no such card issuer
+        '222' => '111', // no card number on file with issuer
+        '223' => '107', // expired card
+        '224' => '404', // invalid expiration date
+        '225' => '106', // invalid CVV
+        '226' => '129', // invalid PIN
+        '240' => '108', // call issuer
+        '250' => '109', // pick up card
+        '251' => '164', // lost card
+        '252' => '164', // stolen card
+        '253' => '109', // fraudulent card
+        '260' => '260', // declined, further instructions available
+        '261' => '123', // declined, stop all recurring payments
+        '262' => '262', // declined, stop this recurring program
+        '263' => '263', // declined, update cardholder data available
+        '264' => '264', // declined, retry in a few days
+        '300' => '300', // rejected by gateway
+        '400' => '113', // transaction error returned by processor
+        '410' => '407', // invalid merchant configuration
+        '411' => '113', // merchant account inactive
+        '420' => '311', // communication error
+        '421' => '312', // communication error with issuer
+        '430' => '212', // duplicate transaction at processor
+        '440' => '154', // processor format error
+        '441' => '165', // invalid transaction information
+        '460' => '460', // processor feature not available
+        '461' => '156', // unsupported card type
     ];
 
     /** @param object $client the app's NMI library instance (doRebill/doCharge/doCapture). */
@@ -57,7 +94,17 @@ class NmiGateway implements GatewayClient
 
     public function normaliseDeclineCode(?string $rawCode): ?string
     {
-        return self::CODE_MAP[$rawCode] ?? $rawCode;
+        if ($rawCode === null) {
+            return null;
+        }
+
+        return $this->map()[$rawCode] ?? $rawCode; // unmapped → passthrough (legacy behaviour)
+    }
+
+    /** Built-in map with config overrides merged on top. */
+    private function map(): array
+    {
+        return array_replace(self::DEFAULT_MAP, (array) config('billing-engine.gateway.code_maps.nmi', []));
     }
 
     /** Token rebill payload (doRebill). */

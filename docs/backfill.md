@@ -65,9 +65,13 @@ hardcoded names — so wiring another app is a config change:
         'transactions' => 'auth_transactions_sports', // rebillCC / rebillPP ledger
         'tickets'      => 'auth_tickets_sports',       // rebillSettles source
         'attempts'     => 'rebill_sports',             // already-billed reconcile
+        'auths'        => 'auth_only_sports',          // settle (capture) + convert enrolment
     ],
-    'udf2'           => ['cc' => ['CCC', 'CCR'], 'pp' => ['PPC', 'PPR']],
-    'settle_amounts' => [34.55, 29.55, 19.55],
+    'udf2'              => ['cc' => ['CCC', 'CCR'], 'pp' => ['PPC', 'PPR']],
+    'settle_amounts'    => [34.55, 29.55, 19.55],
+    'settle_after_days' => 2,       // settle capture: due = auth + N days
+    'convert_days'      => 5,       // convert: due = auth + N days
+    'convert_amount'    => 29.55,   // conversion charge amount
 ],
 ```
 
@@ -150,9 +154,39 @@ engine's charges disabled or compared — before flipping the schedule.
 - A botched seed for the *current* cycle is corrected by deleting the affected
   `pending` rows (never `done`) and re-running — do this only before cutover.
 
+## One-shot enrolment: `settle` and `convert` (daily seeds)
+
+Rebills are a **recurring** population — seed once, rows recur monthly. `settle` (the
+`settleAuths` capture) and `convert` (the `convertInitials` conversion) are **one-shot,
+per-auth** actions driven by *new* auths every day, so they're **enrolled daily** rather than
+seeded once. Schedule them:
+
+```php
+// app Kernel — each on its own cadence
+$schedule->command('billing:seed-schedule sports --type=settle')->hourly();
+$schedule->command('billing:seed-schedule sports --type=convert')->daily();
+```
+
+Their candidates differ from rebills in two ways, which the source expresses with **two extra
+fields** the command uses verbatim (falling back to cycle math when absent):
+
+| Field | One-shot (settle/convert) | Recurring (rebill) |
+|---|---|---|
+| `next_action_at` | **explicit** = `auth_date + N days` (`settle_after_days` / `convert_days`) | omitted → `anchor + cycle_days` |
+| `idempotency_key` | **explicit** = `{member}:{type}:{source_tr_id}` (per auth) | omitted → `{member}:{type}:{cycle}` |
+
+The per-`source_tr_id` key is what makes a **daily** run safe: each auth enrols exactly one
+row, and `insertOrIgnore` skips auths already enrolled, so re-running only adds newly-eligible
+auths. `settle` carries the auth's MID (sticky capture); `convert` sets `mid_id = null` so the
+handler's **rotation** resolver (mid-balancer trial pool) picks at charge time.
+
+See `settleCaptures()` / `conversions()` in `examples/SeedSourceProvider.php`.
+
+> Not yet modelled for these types: the `settleAuths` void check (`nmi_void`) and the
+> conversion over-limit step-down (`105` → 19.90 after 10 days). Add the void check as a
+> `settle` guard and the over-limit rung as a `convert` step-down rule before their cutover.
+
 ## Other types
 
-The same generator yields `cross1`/`cross2` (from the cross UDF sets), `convert` (from
-`OmniAuth`/`OmniPrepaid`), and `settle` (auth-only capture rows — the `settleAuths` capture,
-distinct from the `rebillSettles` rebill folded into `rebill` above) by `billing_type`,
+`cross1`/`cross2` seed like rebills (recurring, from the cross UDF sets), by `billing_type`,
 filtered by `--type`. Keep each type's "latest success / anchor" logic in the generator.
