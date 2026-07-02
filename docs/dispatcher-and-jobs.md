@@ -44,6 +44,30 @@ $schedule->command('billing:dispatch')
     ->everyMinute()->withoutOverlapping(2)->runInBackground();
 ```
 
+### Canary run — test a few members before the full cutover
+
+Before letting the scheduler loose on the whole due population, run one **manual, tiny batch**
+and inspect the outcome (attempt log + billing file log) for those members:
+
+```bash
+# Option A — the first 5 due rows
+php artisan billing:dispatch --type=rebill --limit=5
+
+# Option B — specific members you KNOW have a live MID (pick them from the dry-run CSV;
+# --limit alone grabs the earliest-due rows, which may all SKIP on no_usable_mid)
+php artisan billing:dispatch --type=rebill --member=30282522 --member=441
+```
+
+Both flags apply to `--dry-run` too, so you can preview the exact same canary set first:
+
+```bash
+php artisan billing:dispatch --type=rebill --member=30282522 --dry-run
+```
+
+Because the claim is atomic and per-row, a canary run charges only the matched rows and leaves
+every other `pending` row untouched — safe to run against live data while the scheduler is off.
+`--member` accepts the flag repeatedly (`--member=A --member=B`) or a single id.
+
 ## `billing:dispatch --dry-run` — preview before charging
 
 ```

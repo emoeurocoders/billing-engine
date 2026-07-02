@@ -18,6 +18,11 @@ use Omni\BillingEngine\Support\PreviewResult;
  *
  *   billing:dispatch [--type=rebill] [--limit=500]
  *
+ * Canary a cutover with a tiny, targeted batch before the full run:
+ *
+ *   billing:dispatch --type=rebill --limit=5                       (first 5 due rows)
+ *   billing:dispatch --type=rebill --member=30282522 --member=441  (only these members)
+ *
  * Dry run — show who WOULD be charged without claiming, charging, or writing
  * anything (run the real guards + MID resolution, stop before the charge):
  *
@@ -29,6 +34,7 @@ class DispatchCommand extends Command
     protected $signature = 'billing:dispatch
         {--type=* : Limit to these billing types}
         {--limit= : Max rows to claim/preview (defaults to dispatch.claim_batch; unlimited in --dry-run)}
+        {--member=* : Restrict to these member ids — for canary/targeted test runs}
         {--dry-run : Preview who WOULD be charged; claim nothing, charge nothing, write nothing}
         {--out= : With --dry-run, write the full per-member preview to this CSV path}';
 
@@ -42,6 +48,7 @@ class DispatchCommand extends Command
 
         $limit   = (int) ($this->option('limit') ?: config('billing-engine.dispatch.claim_batch', 500));
         $types   = (array) $this->option('type');
+        $members = array_filter((array) $this->option('member'));
         $conn    = config('billing-engine.schedule.connection');
         $table   = config('billing-engine.schedule.table');
         $now     = Carbon::now();
@@ -52,6 +59,7 @@ class DispatchCommand extends Command
             ->where('status', BillingSchedule::STATUS_PENDING)
             ->where('next_action_at', '<=', $now)
             ->when($types, fn ($q) => $q->whereIn('billing_type', $types))
+            ->when($members, fn ($q) => $q->whereIn('member_id', $members))
             ->orderBy('next_action_at')
             ->limit($limit);
 
@@ -98,8 +106,9 @@ class DispatchCommand extends Command
      */
     private function dryRun(): int
     {
-        $types = (array) $this->option('type');
-        $now   = Carbon::now();
+        $types   = (array) $this->option('type');
+        $members = array_filter((array) $this->option('member'));
+        $now     = Carbon::now();
 
         /** @var BillingPreviewer $previewer */
         $previewer = app(BillingPreviewer::class);
@@ -110,6 +119,7 @@ class DispatchCommand extends Command
             ->where('status', BillingSchedule::STATUS_PENDING)
             ->where('next_action_at', '<=', $now)
             ->when($types, fn ($q) => $q->whereIn('billing_type', $types))
+            ->when($members, fn ($q) => $q->whereIn('member_id', $members))
             ->orderBy('next_action_at');
 
         if ($limit = (int) $this->option('limit')) {
