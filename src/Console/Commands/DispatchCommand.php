@@ -54,6 +54,9 @@ class DispatchCommand extends Command
         $now     = Carbon::now();
         $claimId = $now->format('YmdHis') . '-' . getmypid(); // marker for this run
 
+        // 0. Reap orphaned claims (job vanished before completing) back to pending.
+        $this->reclaimStale($conn, $table, $types, $now);
+
         // 1. Atomic claim: flip a batch of due 'pending' rows to 'claimed'.
         $claim = DB::connection($conn)->table($table)
             ->where('status', BillingSchedule::STATUS_PENDING)
@@ -86,17 +89,63 @@ class DispatchCommand extends Command
 
         $this->info("Claimed and dispatched {$ids->count()} rows.");
 
-        if (config('billing-engine.logging.enabled', true)) {
-            $channel = config('billing-engine.logging.channel');
-            $logger  = $channel ? \Illuminate\Support\Facades\Log::channel($channel) : \Illuminate\Support\Facades\Log::channel();
-            $logger->info("dispatch: claimed and dispatched {$ids->count()} rows", [
-                'claim_run' => $claimId,
-                'types'     => $types ?: 'all',
-                'count'     => $ids->count(),
-            ]);
-        }
+        $this->auditLog("dispatch: claimed and dispatched {$ids->count()} rows", [
+            'claim_run' => $claimId,
+            'types'     => $types ?: 'all',
+            'count'     => $ids->count(),
+        ]);
 
         return self::SUCCESS;
+    }
+
+    /**
+     * Return any row left 'claimed' longer than reclaim_after_minutes to 'pending'.
+     * A claim that old cannot still have a live job: a job either completes (moving
+     * the row off 'claimed') or exhausts its retries and fails() (which itself sets
+     * the row back to pending). So a lingering 'claimed' means the job vanished —
+     * a worker restart mid-enqueue, a lost/cleared queue, etc. Reaping here makes
+     * the dispatcher self-healing instead of silently dropping those members.
+     *
+     * The threshold MUST exceed the worst-case job lifetime (tries * timeout +
+     * sum(backoff)) or we could reclaim a row whose retry is still queued and cause
+     * a duplicate charge — see the config note. Scoped to the same --type filter.
+     */
+    private function reclaimStale(?string $conn, string $table, array $types, Carbon $now): void
+    {
+        $minutes = (int) config('billing-engine.dispatch.reclaim_after_minutes', 30);
+        if ($minutes <= 0) {
+            return; // reaper disabled
+        }
+
+        $reclaimed = DB::connection($conn)->table($table)
+            ->where('status', BillingSchedule::STATUS_CLAIMED)
+            ->where('claimed_at', '<', $now->copy()->subMinutes($minutes))
+            ->when($types, fn ($q) => $q->whereIn('billing_type', $types))
+            ->update([
+                'status'     => BillingSchedule::STATUS_PENDING,
+                'claimed_at' => null,
+            ]);
+
+        if ($reclaimed > 0) {
+            $this->warn("Reclaimed {$reclaimed} stale claimed rows (> {$minutes}m old).");
+            $this->auditLog("dispatch: reclaimed {$reclaimed} stale claimed rows", [
+                'reclaimed'     => $reclaimed,
+                'older_than_min'=> $minutes,
+                'types'         => $types ?: 'all',
+            ]);
+        }
+    }
+
+    /** Mirror a dispatcher line to the billing audit channel (if logging is on). */
+    private function auditLog(string $message, array $context): void
+    {
+        if (!config('billing-engine.logging.enabled', true)) {
+            return;
+        }
+
+        $channel = config('billing-engine.logging.channel');
+        $logger  = $channel ? \Illuminate\Support\Facades\Log::channel($channel) : \Illuminate\Support\Facades\Log::channel();
+        $logger->info($message, $context);
     }
 
     /**

@@ -248,6 +248,14 @@ return [
         'claim_batch'    => 500,
         'lock_seconds'   => 50,   // < the dispatch interval; auto-released
         'per_mid_throttle' => null, // e.g. ['max' => 1, 'per_seconds' => 1]
+
+        // Self-healing: at the top of each dispatch, any row still 'claimed' this
+        // long is an ORPHAN (its job vanished before completing — worker restart,
+        // lost enqueue, etc.) and is returned to 'pending' so it bills next tick.
+        // MUST exceed the worst-case job lifetime so a legitimately-retrying job is
+        // never reclaimed underneath the worker: tries * timeout + sum(backoff).
+        // With tries=3 + backoff [60,300,900] that's ~21m, so keep this >= 30.
+        'reclaim_after_minutes' => 30,
     ],
 
     'timezone' => env('BILLING_TZ', 'MST7MDT'),
