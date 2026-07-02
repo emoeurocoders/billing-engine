@@ -80,44 +80,64 @@ class SeedSourceProvider
     /* ---- RECURRING: rebill populations (seed once) -------------------------- */
 
     /**
-     * rebillCC / rebillPP — latest approved rebill-eligible auth per member.
-     * MAX(tr_date) gives the anchor for next_action_at; the member-attribute
-     * columns (bin/ip/country/exp) are stable across a member's rows.
+     * rebillCC / rebillPP — the LATEST approved rebill-eligible auth per member.
+     *
+     * No GROUP BY: order by member then tr_date DESC and take the first row per
+     * member in PHP (see latestPerMember). This is strict-mode safe
+     * (ONLY_FULL_GROUP_BY) AND correct — every column (tr_id/mid_id/bin/exp) comes
+     * from that member's actual latest row, not an arbitrary grouped one.
      */
     private function cardTransactions(string $cardType): iterable
     {
-        $rows = DB::connection($this->conn())
+        $query = DB::connection($this->conn())
             ->table($this->table('transactions', 'auth_transactions_sports'))
             ->select($this->columns())
-            ->addSelect(DB::raw('MAX(tr_date) as anchor_date'))
+            ->addSelect('tr_date as anchor_date')
             ->where('resp_id', 0)
             ->whereIn('tui_udf02', $this->udf2($cardType))
             ->whereNull('k1')
-            ->groupBy('cust_id_ext')
             ->orderBy('cust_id_ext')
-            ->cursor();
+            ->orderByDesc('tr_date');
 
-        foreach ($rows as $r) {
+        foreach ($this->latestPerMember($query) as $r) {
             yield $this->recurring($r, $cardType, (float) $r->amount);
         }
     }
 
-    /** rebillSettles — members whose ticket amount is a settle amount (a rebill). */
+    /** rebillSettles — members whose latest ticket amount is a settle amount (a rebill). */
     private function settlesRebill(): iterable
     {
-        $rows = DB::connection($this->conn())
+        $query = DB::connection($this->conn())
             ->table($this->table('tickets', 'auth_tickets_sports'))
             ->select($this->columns())
-            ->addSelect(DB::raw('MAX(tr_date) as anchor_date'))
+            ->addSelect('tr_date as anchor_date')
             ->where('resp_id', 0)
             ->whereIn('tr_amount', $this->settleAmounts())
             ->whereNull('k1')
-            ->groupBy('cust_id_ext')
             ->orderBy('cust_id_ext')
-            ->cursor();
+            ->orderByDesc('tr_date');
 
-        foreach ($rows as $r) {
+        foreach ($this->latestPerMember($query) as $r) {
             yield $this->recurring($r, 'cc', (float) $r->amount);
+        }
+    }
+
+    /**
+     * Stream a member-ordered, tr_date-DESC query and yield only the FIRST row
+     * per member (= their latest). Replaces GROUP BY: strict-mode safe, correct,
+     * and memory-safe via cursor(). Assumes the query is ordered by member then
+     * tr_date DESC. For speed on large tables, index (cust_id_ext, tr_date).
+     */
+    private function latestPerMember($query): iterable
+    {
+        $lastMember = null;
+
+        foreach ($query->cursor() as $r) {
+            if ($r->member_id === $lastMember) {
+                continue; // already took this member's latest row
+            }
+            $lastMember = $r->member_id;
+            yield $r;
         }
     }
 

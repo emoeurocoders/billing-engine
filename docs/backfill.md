@@ -50,8 +50,12 @@ shaped:
 ]
 ```
 
-Use a streaming query (`->cursor()`) and `GROUP BY member` with `MAX(tr_date)` for the
-anchor. See `examples/SeedSourceProvider.php` for the worked sports rebill query.
+Use a streaming query (`->cursor()`). **Do not `GROUP BY` member** — under
+`ONLY_FULL_GROUP_BY` (strict mode) it errors, and even where allowed the non-aggregated
+columns come from an arbitrary row, not the `MAX(tr_date)` one. Instead order by
+`member, tr_date DESC` and take the first row per member in PHP (`latestPerMember()` in the
+example) — strict-mode safe and returns the member's actual latest row. Index
+`(cust_id_ext, tr_date)` for speed on large tables.
 
 ### Where the source tables are configured (changing them per app)
 
