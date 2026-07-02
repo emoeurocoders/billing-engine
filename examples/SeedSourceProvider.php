@@ -198,7 +198,7 @@ class SeedSourceProvider
             'tr_id as source_tr_id',
             'merchant_account as mid_id',
             'tr_amount as amount',
-            'bankbin', 'tui_ip', 'tui_bill_country', 'affiliate', 'tui_udf01',
+            'bankbin', 'tui_ip', 'tui_bill_zip', 'tui_bill_country', 'affiliate', 'tui_udf01',
             'expiremonth', 'expireyear',
         ];
     }
@@ -246,6 +246,7 @@ class SeedSourceProvider
         return array_filter([
             'bin'      => $r->bankbin ?? null,
             'ip'       => $r->tui_ip ?? null,
+            'zip'      => $r->tui_bill_zip ?? null,
             'country'  => $r->tui_bill_country ?? null,
             'device'   => $r->affiliate ?? null,
             'udf_1'    => $r->tui_udf01 ?? null,

@@ -37,7 +37,8 @@ class SeedScheduleCommand extends Command
         {vertical : The vertical/stack to seed}
         {--type=* : Limit to these billing types}
         {--dry-run : Compute and report, write nothing}
-        {--spread-hours=6 : Spread overdue backlog across N hours}';
+        {--spread-hours=6 : Spread overdue backlog across N hours}
+        {--refresh-meta : Do NOT insert; merge fresh source meta (bin/ip/zip/…) onto EXISTING rows by idempotency_key}';
 
     protected $description = 'Backfill billing_schedule from the legacy ledger (idempotent, re-runnable)';
 
@@ -56,7 +57,7 @@ class SeedScheduleCommand extends Command
         $now       = Carbon::now();
         $cycle     = $now->format('Ym');
 
-        $stats = ['seen' => 0, 'pending' => 0, 'deferred' => 0, 'dead' => 0, 'inserted' => 0, 'duplicate' => 0];
+        $stats = ['seen' => 0, 'pending' => 0, 'deferred' => 0, 'dead' => 0, 'inserted' => 0, 'duplicate' => 0, 'refreshed' => 0];
         $overdue = 0;
 
         $source = app('billing.seedSource'); // generator: yields candidate arrays
@@ -121,20 +122,35 @@ class SeedScheduleCommand extends Command
         $this->flush($buffer, $dryRun, $stats);
 
         $this->table(['metric', 'count'], collect($stats)->map(fn ($v, $k) => [$k, $v])->values());
-        $this->info($dryRun ? 'DRY RUN — nothing written.' : 'Seed complete.');
-        $this->line('Parity gate: compare "pending" against the legacy query population before cutover.');
+
+        if ($this->option('refresh-meta')) {
+            $this->info($dryRun ? 'DRY RUN — no meta written.' : "Meta refresh complete ({$stats['refreshed']} rows updated).");
+        } else {
+            $this->info($dryRun ? 'DRY RUN — nothing written.' : 'Seed complete.');
+            $this->line('Parity gate: compare "pending" against the legacy query population before cutover.');
+        }
 
         return self::SUCCESS;
     }
 
     private function flush(array $buffer, bool $dryRun, array &$stats): void
     {
-        if (empty($buffer) || $dryRun) {
+        if (empty($buffer)) {
             return;
         }
 
         $conn  = config('billing-engine.schedule.connection');
         $table = config('billing-engine.schedule.table');
+
+        // --refresh-meta: update EXISTING rows' meta in place, never insert.
+        if ($this->option('refresh-meta')) {
+            $this->refreshMeta($buffer, $dryRun, $stats, $conn, $table);
+            return;
+        }
+
+        if ($dryRun) {
+            return;
+        }
 
         // insertOrIgnore on the UNIQUE idempotency key → safe to re-run.
         $before = DB::connection($conn)->table($table)->count();
@@ -144,5 +160,38 @@ class SeedScheduleCommand extends Command
         $inserted = $after - $before;
         $stats['inserted']  += $inserted;
         $stats['duplicate'] += count($buffer) - $inserted;
+    }
+
+    /**
+     * Merge freshly-generated source meta (bin/ip/zip/country/…) onto EXISTING
+     * schedule rows, matched by the same idempotency_key the seed produced — so a
+     * row gets exactly the values from the source row it was seeded from, no
+     * cross-DB JOIN. JSON_MERGE_PATCH only overwrites the keys present in the
+     * patch, so runtime keys (claim_run, mid_strategy) are preserved. Idempotent.
+     */
+    private function refreshMeta(array $buffer, bool $dryRun, array &$stats, ?string $conn, string $table): void
+    {
+        $db = DB::connection($conn);
+
+        foreach ($buffer as $r) {
+            if (empty($r['idempotency_key'])) {
+                continue;
+            }
+
+            if ($dryRun) {
+                $stats['refreshed'] += $db->table($table)
+                    ->where('idempotency_key', $r['idempotency_key'])->exists() ? 1 : 0;
+                continue;
+            }
+
+            $ts = $r['updated_at'] instanceof \DateTimeInterface
+                ? $r['updated_at']->format('Y-m-d H:i:s')
+                : (string) $r['updated_at'];
+
+            $stats['refreshed'] += $db->update(
+                "UPDATE `{$table}` SET meta = JSON_MERGE_PATCH(COALESCE(meta, '{}'), ?), updated_at = ? WHERE idempotency_key = ?",
+                [$r['meta'], $ts, $r['idempotency_key']]
+            );
+        }
     }
 }

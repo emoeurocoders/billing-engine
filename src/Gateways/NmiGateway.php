@@ -119,8 +119,9 @@ class NmiGateway implements GatewayClient
             'descriptor' => $p['descriptor'] ?? null,
             'udf_1'      => $p['udf_1'] ?? null,
             'udf_2'      => $p['udf_2'] ?? null,
-            // Risk/routing fields the legacy doRebill sent.
+            // Risk/routing fields the legacy doRebill sent (zip + ip from the source tx).
             'ip'         => $p['ip'] ?? null,
+            'zip'        => $p['zip'] ?? null,
             'country'    => $p['country'] ?? null,
             'device'     => $p['device'] ?? null,
         ], fn ($v) => $v !== null);

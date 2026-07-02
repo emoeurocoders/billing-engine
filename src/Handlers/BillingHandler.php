@@ -117,9 +117,10 @@ abstract class BillingHandler
             'source_tr_id' => $ctx->row->source_tr_id,
             'descriptor'   => $mid->descriptor,
             'udf_1'        => $meta['udf_1'] ?? null,
-            'udf_2'        => $ctx->typeConfig['udf2'] ?? null,
+            'udf_2'        => $ctx->udf2(), // card-type aware: cc→CCR, pp→PPR
             // Risk/routing fields the legacy doRebill also sent (from seeded meta).
             'ip'           => $meta['ip'] ?? null,
+            'zip'          => $meta['zip'] ?? ($meta['bill_zip'] ?? null),
             'country'      => $meta['country'] ?? ($meta['tui_bill_country'] ?? null),
             'device'       => $meta['device'] ?? ($meta['affiliate'] ?? null),
         ];

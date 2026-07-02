@@ -29,4 +29,21 @@ final class BillingContext
 
     public function logTable(): ?string { return $this->typeConfig['log_table'] ?? null; }
     public function selection(): string { return $this->typeConfig['selection'] ?? 'sticky'; }
+
+    /**
+     * The descriptor UDF2 for this attempt. Config may be a single string (used
+     * for every card) OR a per-card map like ['cc' => 'CCR', 'pp' => 'PPR'] —
+     * legacy rebillCC sent CCR, rebillPP sent PPR, so a unified rebill type MUST
+     * pick by card. Unknown card falls back to the first map entry, then null.
+     */
+    public function udf2(): ?string
+    {
+        $u = $this->typeConfig['udf2'] ?? null;
+
+        if (is_array($u)) {
+            return $u[$this->cardType()] ?? (reset($u) ?: null);
+        }
+
+        return $u;
+    }
 }

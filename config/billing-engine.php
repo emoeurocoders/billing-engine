@@ -282,7 +282,7 @@ return [
         'rebill' => [
             'handler'      => \Omni\BillingEngine\Handlers\RebillHandler::class,
             'selection'    => 'sticky',           // sticky | rotation
-            'udf2'         => 'CCR',
+            'udf2'         => ['cc' => 'CCR', 'pp' => 'PPR'], // per-card: legacy rebillCC=CCR, rebillPP=PPR
             'eligible_udf2'=> ['CCC', 'CCR'],      // source filter
             'cycle_days'   => 30,
             'guards'       => ['already_attempted', 'mid_cap', 'negative_db', 'max_declines', 'same_day', 'conversion_rebill'],
