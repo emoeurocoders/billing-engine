@@ -18,7 +18,7 @@ final public function handle(BillingContext $ctx): void
 
     // 2. MID selection (sticky vs rotation)
     $mid = $this->resolveMid($ctx);
-    if (!$mid) { $this->defer($ctx, 'no_active_mid'); return; }
+    if (!$mid) { $this->defer($ctx, Reasons::NO_MID); return; } // 'no_usable_mid', 1-day retry
     $ctx->mid = $mid;
 
     // 3. Charge

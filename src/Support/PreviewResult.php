@@ -46,7 +46,7 @@ final class PreviewResult
 
     public static function noMid(): self
     {
-        return new self(self::NO_MID, 'no_active_mid');
+        return new self(self::NO_MID, Reasons::NO_MID);
     }
 
     public function willCharge(): bool

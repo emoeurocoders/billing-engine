@@ -262,6 +262,13 @@ return [
     */
     'cycle_days' => 30,
 
+    // When a row passes every guard but no usable MID resolves (all candidates
+    // closed / no live redirect yet), it is a TRANSIENT miss — retry soon rather
+    // than waiting a full cycle, because redirects are often added daily. This is
+    // the retry interval for that no-MID case only; real guard skips still defer a
+    // full cycle_days. Per-type overridable via types.{type}.no_mid_retry_days.
+    'no_mid_retry_days' => 1,
+
     'types' => [
 
         'rebill' => [

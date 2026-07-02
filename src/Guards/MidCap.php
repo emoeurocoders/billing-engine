@@ -6,6 +6,7 @@ use Omni\BillingEngine\Contracts\BillingGuard;
 use Omni\BillingEngine\Contracts\MidResolver;
 use Omni\BillingEngine\Support\BillingContext;
 use Omni\BillingEngine\Support\GuardResult;
+use Omni\BillingEngine\Support\Reasons;
 
 /**
  * Defers the row if the member's MID can't take the charge today (inactive,
@@ -29,7 +30,7 @@ class MidCap implements BillingGuard
         $mid = $this->mids->resolveStickyMid((string) $ctx->midId(), $ctx);
 
         if (!$mid) {
-            return GuardResult::skip('no_usable_mid');
+            return GuardResult::skip(Reasons::NO_MID);
         }
 
         $ctx->mid = $mid; // hand the resolved MID to the handler (avoids a 2nd lookup)

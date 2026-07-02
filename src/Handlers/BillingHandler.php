@@ -22,6 +22,7 @@ use Omni\BillingEngine\Support\CardData;
 use Omni\BillingEngine\Support\GatewayResult;
 use Omni\BillingEngine\Support\GuardResult;
 use Omni\BillingEngine\Support\MidDecision;
+use Omni\BillingEngine\Support\Reasons;
 use Omni\BillingEngine\Support\StepDownPlan;
 
 /**
@@ -57,7 +58,9 @@ abstract class BillingHandler
         // 2. MID selection (sticky vs rotation — overridable)
         $mid = $this->resolveMid($ctx);
         if (!$mid) {
-            $this->defer($ctx, 'no_active_mid');
+            // Transient: no live MID / no redirect YET. defer() gives the no-MID
+            // reason its short retry automatically (see below).
+            $this->defer($ctx, Reasons::NO_MID);
             return;
         }
         $ctx->mid = $mid;
@@ -250,13 +253,30 @@ abstract class BillingHandler
         $this->defer($ctx, $v->reason ?? 'skipped');
     }
 
-    protected function defer(BillingContext $ctx, string $reason): void
+    protected function defer(BillingContext $ctx, string $reason, ?int $days = null): void
     {
-        $days = (int) ($ctx->typeConfig['cycle_days'] ?? config('billing-engine.cycle_days', 30));
+        // A no-MID miss is transient (a redirect may be added tomorrow) → short
+        // retry, wherever it was detected (MidCap guard OR handler fallback). Every
+        // other guard skip waits a full cycle, since it won't clear overnight.
+        $days ??= $reason === Reasons::NO_MID
+            ? $this->noMidRetryDays($ctx)
+            : (int) ($ctx->typeConfig['cycle_days'] ?? config('billing-engine.cycle_days', 30));
+
         $ctx->row->status         = BillingSchedule::STATUS_PENDING;
         $ctx->row->next_action_at = Carbon::now()->addDays($days);
         $ctx->row->save();
         Event::dispatch(new BillingSkipped($ctx, $reason));
+    }
+
+    /**
+     * Retry interval for a transient no-MID miss (guards passed, but no live MID
+     * resolved). Short by design so a redirect added tomorrow is picked up next
+     * day, rather than waiting a full cycle. Per-type override, else global.
+     */
+    protected function noMidRetryDays(BillingContext $ctx): int
+    {
+        return (int) ($ctx->typeConfig['no_mid_retry_days']
+            ?? config('billing-engine.no_mid_retry_days', 1));
     }
 
     /**

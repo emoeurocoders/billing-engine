@@ -132,6 +132,27 @@ protected function resolveMid(BillingContext $ctx): ?MidDecision
 
 `ConvertHandler` forces rotation regardless. Override `resolveMid` for anything bespoke.
 
+## When no MID resolves — a **1-day** retry, not a full cycle
+
+If resolution returns `null` (every candidate closed, no live `redirect_mid` yet) the row is
+deferred with the canonical reason **`no_usable_mid`** (`Reasons::NO_MID`) and `next_action_at`
+is rescheduled to **now + `no_mid_retry_days`** (default **1 day**) — *not* the full `cycle_days`.
+This is deliberate: a no-MID miss is transient, and redirects are frequently added daily, so the
+member should be retried the next day once a live/redirect MID exists.
+
+The same condition is detected in **two** places and both use that one reason + short retry: the
+`mid_cap` guard (early, for sticky selection) and the handler's own `resolveMid` fallback. The
+routing lives in `BillingHandler::defer()`, which picks the short interval whenever the reason is
+`no_usable_mid` and the full cycle for every other skip.
+
+```php
+'no_mid_retry_days' => 1,   // global; override per type via types.{type}.no_mid_retry_days
+```
+
+Contrast with a **guard** skip (`same_day`, `already_attempted`, `negative_db`, …): those defer a
+full `cycle_days`, because the condition won't clear tomorrow. Only the no-MID path uses the short
+interval. Grep production logs for `reason=no_usable_mid` to see the cohort waiting on a MID.
+
 ## Recording outcomes
 
 After every charge (approved **and** declined), `handle()` calls `MidResolver::recordResult(...)`
