@@ -67,7 +67,7 @@ abstract class BillingHandler
         $ctx->result = $result;
 
         // 4. Record everywhere (MID state, attempt log, schedule row)
-        $this->mids->recordResult($mid, $result->approved, $this->resultDetails($result));
+        $this->mids->recordResult($mid, $result->approved, $this->resultDetails($ctx, $result));
         $this->log->record($ctx, $result->approved, $result->responseCode, $result->transactionId);
 
         // 5. Outcome hooks + next due date
@@ -259,13 +259,22 @@ abstract class BillingHandler
         Event::dispatch(new BillingSkipped($ctx, $reason));
     }
 
-    protected function resultDetails(GatewayResult $r): array
+    /**
+     * Normalised details handed to MidResolver::recordResult (→ the mid-balancer's
+     * recordRebillResult, for reporting). Mirrors what the legacy rebillCC passed:
+     *   - declineCode   = the RAW gateway response_code (legacy passed the raw code,
+     *                     not the canonical one) — `canonicalCode` carries the mapped value.
+     *   - vertical      = the member's udf_1 (legacy passed `vertical: $udf_1`).
+     */
+    protected function resultDetails(BillingContext $ctx, GatewayResult $r): array
     {
         return [
-            'declineCode'      => $r->responseCode,
+            'declineCode'      => $r->raw['response_code'] ?? $r->responseCode,
+            'canonicalCode'    => $r->responseCode,
             'declineReason'    => $r->responseText,
             'transactionId'    => $r->transactionId,
             'bankResponseCode' => $r->raw['processor_response_code'] ?? null,
+            'vertical'         => $ctx->row->meta['udf_1'] ?? $ctx->vertical,
         ];
     }
 }

@@ -134,9 +134,21 @@ protected function resolveMid(BillingContext $ctx): ?MidDecision
 
 ## Recording outcomes
 
-After every charge, `handle()` calls `MidResolver::recordResult(...)` with normalised
-details (decline code, bank response code, decline reason, transaction id). For the
-mid-balancer adapter this updates `rebills_daily_stats` (the replacement for the legacy
-`sports_mids` counters); for `DirectMidResolver` it's a no-op. The old `sports_mids`
-`count`/`count_declines`/`daily_volume` columns are intentionally left behind — see
-"[The engine reads the SOURCE `mids` table](#the-engine-reads-the-source-mids-table--not-the-legacy-sports_mids-copy)".
+After every charge (approved **and** declined), `handle()` calls `MidResolver::recordResult(...)`
+with normalised details, which the sports adapter forwards to `MidBalancer::recordRebillResult()`
+— the same call the legacy `rebillCC`/`rebillPP` made, so **reporting stays intact**. The details:
+
+| detail | value | legacy parity |
+|---|---|---|
+| `declineCode` | the **raw** gateway `response_code` | legacy passed the raw code, not the canonical |
+| `canonicalCode` | the normalised code | (extra — use if you prefer the mapped value) |
+| `bankResponseCode` | `processor_response_code` | ✓ |
+| `declineReason` / `transactionId` | as returned | ✓ |
+| `vertical` | the member's `udf_1` (from seeded `meta`) | legacy passed `vertical: $udf_1` |
+
+Two things to know:
+- **Only the mid-balancer adapter records.** `DirectMidResolver::recordResult` is a **no-op**, so
+  a vertical must bind `MidResolver → SportsMidBalancerAdapter` for `recordRebillResult` to fire.
+  If reporting looks empty, this binding is the first thing to check.
+- The old `sports_mids` `count`/`count_declines`/`daily_volume` columns are intentionally left
+  behind — see "[The engine reads the SOURCE `mids` table](#the-engine-reads-the-source-mids-table--not-the-legacy-sports_mids-copy)".

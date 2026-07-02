@@ -68,6 +68,9 @@ class SportsMidBalancerAdapter implements MidResolver
     public function recordResult(MidDecision $mid, bool $approved, array $details = []): void
     {
         if ($mid->state instanceof RebillDailyStats) {
+            // Same call the legacy rebillCC/PP made — note `vertical` (legacy's
+            // $udf_1) and `declineCode` = the RAW gateway code, both needed for
+            // the mid-balancer reporting to match legacy.
             MidBalancer::recordRebillResult(
                 mid: $mid->state,
                 approved: $approved,
@@ -75,6 +78,7 @@ class SportsMidBalancerAdapter implements MidResolver
                 bankResponseCode: $details['bankResponseCode'] ?? null,
                 declineReason: $details['declineReason'] ?? null,
                 transactionId: $details['transactionId'] ?? null,
+                vertical: $details['vertical'] ?? null,
             );
         }
     }
