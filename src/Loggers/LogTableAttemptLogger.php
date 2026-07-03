@@ -44,25 +44,33 @@ class LogTableAttemptLogger implements AttemptLogger
         return [Carbon::now()->subDays($days - 1)->toDateString(), Carbon::now()->toDateString()];
     }
 
-    public function alreadyAttempted(BillingContext $ctx): bool
+    /**
+     * Attempts for this member inside the cycle window, EXCLUDING the anchor
+     * charge this rebill was seeded from (source_tr_id). Without that exclusion
+     * every on-schedule member is falsely flagged "already attempted this cycle":
+     * their previous cycle's charge — the very transaction this rebill derives
+     * from — is always ~cycle_days-1 back, i.e. inside a rolling window. Only a
+     * DIFFERENT tr_id (the engine's own retry, or a dual-run legacy charge) is a
+     * genuine same-cycle attempt.
+     */
+    private function windowedAttempts(BillingContext $ctx)
     {
         [$from, $to] = $this->cycleWindow();
 
         return $this->table($ctx)
             ->where('uid', $ctx->memberId())
             ->whereBetween(DB::raw('DATE(`date`)'), [$from, $to])
-            ->exists();
+            ->when($ctx->row->source_tr_id, fn ($q, $trId) => $q->where('tr_id', '!=', $trId));
+    }
+
+    public function alreadyAttempted(BillingContext $ctx): bool
+    {
+        return $this->windowedAttempts($ctx)->exists();
     }
 
     public function lastApprovedThisCycle(BillingContext $ctx): bool
     {
-        [$from, $to] = $this->cycleWindow();
-
-        $last = $this->table($ctx)
-            ->where('uid', $ctx->memberId())
-            ->whereBetween(DB::raw('DATE(`date`)'), [$from, $to])
-            ->orderByDesc('date')
-            ->first();
+        $last = $this->windowedAttempts($ctx)->orderByDesc('date')->first();
 
         return $last && (int) $last->result === 1;
     }
