@@ -65,8 +65,8 @@
             <div class="card"><div class="card-label">Declined</div><div class="card-value gray" id="c_declined">0</div><div class="card-sub" id="c_rate">&mdash;</div></div>
             <div class="card"><div class="card-label">Killed (neg-db)</div><div class="card-value gray" id="c_killed">0</div></div>
             <div class="card"><div class="card-label">Processed</div><div class="card-value blue" id="c_processed">0</div></div>
-            <div class="card"><div class="card-label">Pending (due)</div><div class="card-value" id="c_pending">0</div><div class="card-sub" id="c_pending_amt">$0.00</div></div>
-            <div class="card" id="card_backlog"><div class="card-label">Overdue backlog</div><div class="card-value" id="c_backlog">0</div><div class="card-sub">pending &middot; 0 attempts &middot; past due</div></div>
+            <div class="card" id="card_duenow"><div class="card-label">Due now</div><div class="card-value" id="c_due_now">0</div><div class="card-sub">pending &middot; time arrived</div></div>
+            <div class="card"><div class="card-label">Scheduled today</div><div class="card-value gray" id="c_scheduled">0</div><div class="card-sub" id="c_scheduled_amt">$0.00</div></div>
             <div class="card" id="card_parked"><div class="card-label">Parked &rarr; next cycle</div><div class="card-value orange" id="c_parked">0</div><div class="card-sub">never charged (recovery watch)</div></div>
         </div>
         <div class="foot">Read-only. Timezone <span id="tzfoot"></span>. Auto-refreshes every 20s when viewing today.</div>
@@ -100,18 +100,21 @@
             document.getElementById('c_rate').textContent = c.approval_rate + '% appr';
             document.getElementById('c_killed').textContent = num(c.killed.count);
             document.getElementById('c_processed').textContent = num(c.processed.count);
-            document.getElementById('c_pending').textContent = num(c.pending.count);
-            document.getElementById('c_pending_amt').textContent = money(c.pending.amount);
-            document.getElementById('c_backlog').textContent = num(c.backlog.count);
+            document.getElementById('c_due_now').textContent = num(c.due_now.count);
+            document.getElementById('c_scheduled').textContent = num(c.scheduled.count);
+            document.getElementById('c_scheduled_amt').textContent = money(c.scheduled.amount);
             document.getElementById('c_parked').textContent = num(c.parked_next_cycle.count);
 
-            document.getElementById('card_backlog').className = 'card' + (c.backlog.count > 0 ? ' alert' : '');
-            document.getElementById('c_backlog').className = 'card-value ' + (c.backlog.count > 0 ? 'red' : 'green');
+            // Due-now is the backlog to watch: green when clear, orange normal churn,
+            // red only if it piles up well past one dispatch batch.
+            const dn = c.due_now.count;
+            document.getElementById('card_duenow').className = 'card' + (dn > 2000 ? ' alert' : '');
+            document.getElementById('c_due_now').className = 'card-value ' + (dn > 2000 ? 'red' : (dn > 0 ? 'orange' : 'green'));
             document.getElementById('card_parked').className = 'card' + (c.parked_next_cycle.count > 0 ? ' warn' : '');
 
             document.getElementById('progressPct').textContent = d.progress + '%';
             document.getElementById('progressFill').style.width = Math.min(100, d.progress) + '%';
-            document.getElementById('progressText').textContent = num(c.processed.count) + ' processed / ' + num(c.pending.count) + ' still pending';
+            document.getElementById('progressText').textContent = num(c.processed.count) + ' processed / ' + num(dn) + ' due now · ' + num(c.scheduled.count) + ' scheduled today';
 
             document.getElementById('updated').textContent = (d.updated_at || '').slice(11, 19) || '—';
             document.getElementById('tz').textContent = d.tz;

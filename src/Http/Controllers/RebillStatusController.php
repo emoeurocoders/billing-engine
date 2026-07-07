@@ -92,9 +92,10 @@ class RebillStatusController extends Controller
             ->where('next_action_at', '>=', $nextCycleStart)
             ->count();
 
-        // Progress: processed vs (processed + still-pending-for-the-day).
-        $dayTotal = $processed + $duePending;
-        $progress = $dayTotal > 0 ? round($processed / $dayTotal * 100, 1) : 0.0;
+        // Progress = of what's DUE so far, how much is processed. NOT vs the whole
+        // day (spread across 24h), which would read as "behind" at midday.
+        $dueSoFar = $processed + $dueNow;
+        $progress = $dueSoFar > 0 ? round($processed / $dueSoFar * 100, 1) : 100.0;
 
         return response()->json([
             'vertical'    => config('billing-engine.vertical', 'sports'),
@@ -108,8 +109,8 @@ class RebillStatusController extends Controller
                 'declined'  => ['count' => $declined],
                 'killed'    => ['count' => $killed],
                 'processed' => ['count' => $processed],
-                'pending'   => ['count' => $duePending, 'amount' => round($duePendingAmount, 2)],
-                'backlog'   => ['count' => $backlog],
+                'due_now'   => ['count' => $dueNow, 'amount' => round($dueNowAmt, 2)],
+                'scheduled' => ['count' => $scheduled, 'amount' => round($scheduledAmount, 2)],
                 'parked_next_cycle' => ['count' => $parkedNextCycle],
                 'approval_rate' => $attTotal > 0 ? round($approved / $attTotal * 100, 1) : 0,
             ],
