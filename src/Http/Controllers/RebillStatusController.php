@@ -59,22 +59,37 @@ class RebillStatusController extends Controller
 
         $processed = $approved + $declined + $killed;
 
-        // --- Forward-looking: what is still scheduled/pending ---
-        // Due on $date and still awaiting (not yet charged this cycle).
-        $dueRow = $sched()->where('status', 'pending')
+        // --- Pending, made TIME-AWARE (rebills are spread across the day by each
+        // member's rebill time-of-day, so "scheduled today" is mostly not due yet). ---
+
+        // DUE NOW: pending rebills whose time has ARRIVED but that aren't charged
+        // yet — the real backlog to watch. Live for today; leftover-as-of-that-day
+        // for a historical view.
+        $dueNowQ = $sched()->where('status', 'pending');
+        $isToday
+            ? $dueNowQ->where('next_action_at', '<=', $now)
+            : $dueNowQ->whereRaw('DATE(next_action_at) <= ?', [$date]);
+        $dueNowRow = $dueNowQ->selectRaw('COUNT(*) c, COALESCE(SUM(amount),0) amt')->first();
+        $dueNow    = (int) ($dueNowRow->c ?? 0);
+        $dueNowAmt = (float) ($dueNowRow->amt ?? 0);
+
+        // SCHEDULED for the day: the whole day's remaining rebill queue (most simply
+        // not due yet — informational volume, not a backlog).
+        $schedRow = $sched()->where('status', 'pending')
             ->whereRaw('DATE(next_action_at) = ?', [$date])
             ->selectRaw('COUNT(*) c, COALESCE(SUM(amount),0) amt')->first();
-        $duePending       = (int) ($dueRow->c ?? 0);
-        $duePendingAmount = (float) ($dueRow->amt ?? 0);
-
-        // Live backlog: pending, never charged, already due — should be ~0.
-        $backlog = (int) $sched()->where('status', 'pending')->where('attempts', 0)
-            ->where('next_action_at', '<=', $now)->count();
+        $scheduled       = (int) ($schedRow->c ?? 0);
+        $scheduledAmount = (float) ($schedRow->amt ?? 0);
 
         // Recovery watch: pending rebills wrongly parked into a FUTURE cycle
-        // (never charged) — the timezone-bug victims still awaiting recovery.
+        // (never charged) — the timezone-bug victims still awaiting recovery. The
+        // claim_run marker is essential: it means the row was DISPATCHED then
+        // deferred, which separates a real victim from a legitimately future-due
+        // row (a member genuinely billing next cycle, which has no claim_run).
+        $nextCycleStart = $now->copy()->startOfMonth()->addMonth()->toDateString();
         $parkedNextCycle = (int) $sched()->where('status', 'pending')->where('attempts', 0)
-            ->where('next_action_at', '>=', $now->copy()->addDays(20)->toDateString())
+            ->where('meta', 'like', '%claim_run%')
+            ->where('next_action_at', '>=', $nextCycleStart)
             ->count();
 
         // Progress: processed vs (processed + still-pending-for-the-day).
