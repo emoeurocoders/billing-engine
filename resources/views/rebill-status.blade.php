@@ -114,7 +114,7 @@
 
             document.getElementById('progressPct').textContent = d.progress + '%';
             document.getElementById('progressFill').style.width = Math.min(100, d.progress) + '%';
-            document.getElementById('progressText').textContent = num(c.processed.count) + ' processed / ' + num(dn) + ' due now · ' + num(c.scheduled.count) + ' scheduled today';
+            document.getElementById('progressText').textContent = num(c.processed.count) + ' processed · ' + num(c.scheduled.count) + ' scheduled today' + (dn > 0 ? ' · ' + num(dn) + ' due now' : '');
 
             document.getElementById('updated').textContent = (d.updated_at || '').slice(11, 19) || '—';
             document.getElementById('tz').textContent = d.tz;

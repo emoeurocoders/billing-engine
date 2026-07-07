@@ -92,10 +92,10 @@ class RebillStatusController extends Controller
             ->where('next_action_at', '>=', $nextCycleStart)
             ->count();
 
-        // Progress = of what's DUE so far, how much is processed. NOT vs the whole
-        // day (spread across 24h), which would read as "behind" at midday.
-        $dueSoFar = $processed + $dueNow;
-        $progress = $dueSoFar > 0 ? round($processed / $dueSoFar * 100, 1) : 100.0;
+        // Progress = processed vs the day's TOTAL scheduled volume (processed +
+        // still-scheduled-today). Climbs toward 100% as the day's queue drains.
+        $dayVolume = $processed + $scheduled;
+        $progress  = $dayVolume > 0 ? round($processed / $dayVolume * 100, 1) : 100.0;
 
         return response()->json([
             'vertical'    => config('billing-engine.vertical', 'sports'),
