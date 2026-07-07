@@ -153,7 +153,15 @@ class BillingLogSubscriber
     private function channel()
     {
         $channel = config('billing-engine.logging.channel');
+        $logger  = $channel ? Log::channel($channel) : Log::channel();
 
-        return $channel ? Log::channel($channel) : Log::channel();
+        // Keep the file writable by every user that logs (root cron dispatcher +
+        // non-root workers) so no outcome line is silently dropped.
+        LogFilePermissions::ensureWritable(
+            $logger,
+            (int) config('billing-engine.logging.file_permission', 0777)
+        );
+
+        return $logger;
     }
 }

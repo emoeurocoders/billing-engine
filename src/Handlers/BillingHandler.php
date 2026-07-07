@@ -19,6 +19,7 @@ use Omni\BillingEngine\Pipeline\GuardRunner;
 use Omni\BillingEngine\StepDown\StepDownPlanner;
 use Omni\BillingEngine\Support\BillingContext;
 use Omni\BillingEngine\Support\CardData;
+use Omni\BillingEngine\Support\Clock;
 use Omni\BillingEngine\Support\GatewayResult;
 use Omni\BillingEngine\Support\GuardResult;
 use Omni\BillingEngine\Support\MidDecision;
@@ -195,7 +196,7 @@ abstract class BillingHandler
 
         if ($r->approved) {
             $row->status         = BillingSchedule::STATUS_DONE;
-            $row->next_action_at = Carbon::now()->addDays($days);
+            $row->next_action_at = Clock::now()->addDays($days);
             $row->step           = 0;
             $row->meta           = array_diff_key($row->meta ?? [], ['mid_strategy' => null]);
             $row->save();
@@ -216,7 +217,7 @@ abstract class BillingHandler
             $row->status = BillingSchedule::STATUS_DEAD;
         } else {
             $row->status         = BillingSchedule::STATUS_PENDING;
-            $row->next_action_at = Carbon::now()->addDays($days); // wait next cycle
+            $row->next_action_at = Clock::now()->addDays($days); // wait next cycle
         }
 
         $row->save();
@@ -234,7 +235,7 @@ abstract class BillingHandler
         $row->step           = ($row->step ?? 0) + 1;
         $row->meta           = array_merge($row->meta ?? [], ['mid_strategy' => $plan->midStrategy]);
         $row->status         = BillingSchedule::STATUS_PENDING;
-        $row->next_action_at = Carbon::now()->addDays($plan->delayDays);
+        $row->next_action_at = Clock::now()->addDays($plan->delayDays);
         $row->save();
 
         Event::dispatch(new BillingSteppedDown($ctx, $plan));
@@ -256,17 +257,28 @@ abstract class BillingHandler
 
     protected function defer(BillingContext $ctx, string $reason, ?int $days = null): void
     {
-        // A no-MID miss is transient (a redirect may be added tomorrow) → short
-        // retry, wherever it was detected (MidCap guard OR handler fallback). Every
-        // other guard skip waits a full cycle, since it won't clear overnight.
-        $days ??= $reason === Reasons::NO_MID
+        // TRANSIENT skips clear overnight, so they retry SOON rather than waiting a
+        // full cycle:
+        //   - no-MID miss  — a redirect may be added tomorrow (MidCap guard OR the
+        //                    handler's own resolveMid fallback), and
+        //   - same-day     — the member already has a charge TODAY; the collision is
+        //                    gone tomorrow, so a rebill parked a whole month here is
+        //                    lost revenue.
+        // Every other guard skip waits a full cycle, since it won't clear overnight.
+        $days ??= $this->isTransientSkip($reason)
             ? $this->noMidRetryDays($ctx)
             : (int) ($ctx->typeConfig['cycle_days'] ?? config('billing-engine.cycle_days', 30));
 
         $ctx->row->status         = BillingSchedule::STATUS_PENDING;
-        $ctx->row->next_action_at = Carbon::now()->addDays($days);
+        $ctx->row->next_action_at = Clock::now()->addDays($days);
         $ctx->row->save();
         Event::dispatch(new BillingSkipped($ctx, $reason));
+    }
+
+    /** Skip reasons that clear overnight → short retry instead of a full cycle. */
+    protected function isTransientSkip(string $reason): bool
+    {
+        return in_array($reason, [Reasons::NO_MID, Reasons::SAME_DAY], true);
     }
 
     /**

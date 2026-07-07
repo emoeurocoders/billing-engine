@@ -6,6 +6,7 @@ use Illuminate\Console\Command;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Omni\BillingEngine\Models\BillingSchedule;
+use Omni\BillingEngine\Support\Clock;
 
 /**
  * Backfill / enrolment: materialise a billing population into
@@ -54,7 +55,7 @@ class SeedScheduleCommand extends Command
         }
 
         $cycleDays = (int) config('billing-engine.cycle_days', 30);
-        $now       = Carbon::now();
+        $now       = Clock::now();
         $cycle     = $now->format('Ym');
 
         $stats = ['seen' => 0, 'pending' => 0, 'deferred' => 0, 'dead' => 0, 'inserted' => 0, 'duplicate' => 0, 'refreshed' => 0];
@@ -72,10 +73,10 @@ class SeedScheduleCommand extends Command
             // Due date: explicit from the source (one-shot settle/convert:
             // auth_date + N days), else cycle math off the anchor (recurring).
             if (!empty($row['next_action_at'])) {
-                $dueAt = Carbon::parse($row['next_action_at']);
+                $dueAt = Clock::parse($row['next_action_at']);
             } else {
                 $typeCycleDays = (int) config("billing-engine.types.{$type}.cycle_days", $cycleDays);
-                $dueAt = Carbon::parse($row['anchor_date'] ?? $now->toDateTimeString())->addDays($typeCycleDays);
+                $dueAt = Clock::parse($row['anchor_date'] ?? $now->toDateTimeString())->addDays($typeCycleDays);
             }
 
             if (!empty($row['dead'])) {

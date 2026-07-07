@@ -40,19 +40,23 @@ class SeedSourceProvider
     {
         $want = fn (string $t) => !$types || in_array($t, $types, true);
 
+        // REBILLS ONLY. A member's FIRST paid charge is a CONVERSION
+        // (convertInitials/convertPP) or a SETTLE capture (settleAuths) — the first
+        // transaction, handled by the LEGACY crons (out of scope). The engine seeds
+        // only 2nd-and-onward charges (rebills), anchored on the member's LATEST
+        // paid transaction + 30 days. The CC/PP sources include the CONVERSION udf2
+        // codes (CCC/PPC) because the FIRST rebill anchors on the conversion row;
+        // later rebills anchor on the prior rebill (CCR/PPR). settlesRebill anchors
+        // on the capture ticket.
         if ($want('rebill')) {
             yield from $this->cardTransactions('cc');   // rebillCC
             yield from $this->cardTransactions('pp');   // rebillPP
             yield from $this->settlesRebill();          // rebillSettles (a rebill)
         }
 
-        if ($want('settle')) {
-            yield from $this->settleCaptures();         // settleAuths (doCapture)
-        }
-
-        if ($want('convert')) {
-            yield from $this->conversions();            // convertInitials
-        }
+        // 'settle'/'convert' are NOT seeded — those are the first-charge conversion
+        // flows, migrated as a separate project. settleCaptures()/conversions()
+        // below are kept unused for reference; do NOT wire them to a cron.
     }
 
     /* ---- config accessors (each table/filter is overridable per app) -------- */

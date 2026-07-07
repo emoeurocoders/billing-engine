@@ -5,6 +5,7 @@ namespace Omni\BillingEngine\Guards;
 use Omni\BillingEngine\Contracts\BillingGuard;
 use Omni\BillingEngine\Support\BillingContext;
 use Omni\BillingEngine\Support\GuardResult;
+use Omni\BillingEngine\Support\Reasons;
 
 /**
  * Skip if the member already has an approved transaction today (prevents a
@@ -27,7 +28,7 @@ class SameDay implements BillingGuard
         $check = app()->bound('billing.sameDayCheck') ? app('billing.sameDayCheck') : null;
 
         if ($check && $check($ctx->memberId())) {
-            return GuardResult::skip('same_day_transaction');
+            return GuardResult::skip(Reasons::SAME_DAY);
         }
 
         return GuardResult::pass();

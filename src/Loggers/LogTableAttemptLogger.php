@@ -6,6 +6,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Omni\BillingEngine\Contracts\AttemptLogger;
 use Omni\BillingEngine\Support\BillingContext;
+use Omni\BillingEngine\Support\Clock;
 
 /**
  * Legacy attempt logger — writes the existing per-type/per-vertical log tables
@@ -41,7 +42,7 @@ class LogTableAttemptLogger implements AttemptLogger
     private function cycleWindow(): array
     {
         $days = (int) config('billing-engine.cycle_days', 30);
-        return [Carbon::now()->subDays($days - 1)->toDateString(), Carbon::now()->toDateString()];
+        return [Clock::now()->subDays($days - 1)->toDateString(), Clock::now()->toDateString()];
     }
 
     /**
@@ -80,7 +81,7 @@ class LogTableAttemptLogger implements AttemptLogger
         $this->table($ctx)->insert([
             'uid'          => $ctx->memberId(),
             'card_type'    => $ctx->cardType(),
-            'date'         => Carbon::now(),
+            'date'         => Clock::now(),
             'result'       => $approved ? 1 : 0,
             'decline_code' => $declineCode,
             'amount'       => $ctx->amount(),

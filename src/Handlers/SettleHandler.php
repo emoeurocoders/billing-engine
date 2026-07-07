@@ -5,6 +5,7 @@ namespace Omni\BillingEngine\Handlers;
 use Carbon\Carbon;
 use Omni\BillingEngine\Models\BillingSchedule;
 use Omni\BillingEngine\Support\BillingContext;
+use Omni\BillingEngine\Support\Clock;
 use Omni\BillingEngine\Support\GatewayResult;
 
 /**
@@ -30,7 +31,7 @@ class SettleHandler extends BillingHandler
         } else {
             $ctx->row->status            = BillingSchedule::STATUS_PENDING;
             $ctx->row->last_decline_code = $r->responseCode;
-            $ctx->row->next_action_at    = Carbon::now()->addDay();
+            $ctx->row->next_action_at    = Clock::now()->addDay();
         }
 
         $ctx->row->save();

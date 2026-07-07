@@ -6,6 +6,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Omni\BillingEngine\Contracts\BillingGuard;
 use Omni\BillingEngine\Support\BillingContext;
+use Omni\BillingEngine\Support\Clock;
 use Omni\BillingEngine\Support\GuardResult;
 
 /**
@@ -71,11 +72,14 @@ class ConversionRebill implements BillingGuard
         }
 
         $c    = $cfg['columns'];
-        $tz   = config('billing-engine.timezone', 'MST7MDT');
         $days = (int) ($cfg['cycle_days'] ?? config('billing-engine.cycle_days', 30));
 
-        $from = Carbon::now($tz)->subDays($days - 1)->toDateString();
-        $to   = Carbon::now($tz)->toDateString();
+        // Clock::now() is the SINGLE billing-timezone clock — the same one the
+        // dispatcher/scheduler use — so this window can never land a day off the
+        // day the row was scheduled/claimed (the MST/UTC split-brain that swallowed
+        // the anchor charge and skipped on-schedule rebills a full cycle).
+        $from = Clock::now()->subDays($days - 1)->toDateString();
+        $to   = Clock::now()->toDateString();
 
         return DB::connection($cfg['connection'])
             ->table($cfg['table'])

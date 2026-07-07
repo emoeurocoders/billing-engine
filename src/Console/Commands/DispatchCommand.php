@@ -9,6 +9,7 @@ use Omni\BillingEngine\Jobs\ProcessBillingJob;
 use Omni\BillingEngine\Models\BillingSchedule;
 use Omni\BillingEngine\Preview\BillingPreviewer;
 use Omni\BillingEngine\Support\BillingContext;
+use Omni\BillingEngine\Support\Clock;
 use Omni\BillingEngine\Support\PreviewResult;
 
 /**
@@ -51,7 +52,7 @@ class DispatchCommand extends Command
         $members = array_filter((array) $this->option('member'));
         $conn    = config('billing-engine.schedule.connection');
         $table   = config('billing-engine.schedule.table');
-        $now     = Carbon::now();
+        $now     = Clock::now();
         $claimId = $now->format('YmdHis') . '-' . getmypid(); // marker for this run
 
         // 0. Reap orphaned claims (job vanished before completing) back to pending.
@@ -145,6 +146,13 @@ class DispatchCommand extends Command
 
         $channel = config('billing-engine.logging.channel');
         $logger  = $channel ? \Illuminate\Support\Facades\Log::channel($channel) : \Illuminate\Support\Facades\Log::channel();
+
+        // Ensure the log file stays writable by non-root workers (see LogFilePermissions).
+        \Omni\BillingEngine\Logging\LogFilePermissions::ensureWritable(
+            $logger,
+            (int) config('billing-engine.logging.file_permission', 0777)
+        );
+
         $logger->info($message, $context);
     }
 
@@ -157,7 +165,7 @@ class DispatchCommand extends Command
     {
         $types   = (array) $this->option('type');
         $members = array_filter((array) $this->option('member'));
-        $now     = Carbon::now();
+        $now     = Clock::now();
 
         /** @var BillingPreviewer $previewer */
         $previewer = app(BillingPreviewer::class);

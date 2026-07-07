@@ -15,4 +15,11 @@ final class Reasons
 {
     /** Guards passed (or MID cap guard tripped) but no usable/live MID resolved. */
     public const NO_MID = 'no_usable_mid';
+
+    /**
+     * Member already has a charge TODAY — skip to avoid a same-day double charge.
+     * Transient: the collision is gone tomorrow, so BillingHandler::defer() gives
+     * this a short (next-day) retry, NOT a full-cycle park.
+     */
+    public const SAME_DAY = 'same_day_transaction';
 }

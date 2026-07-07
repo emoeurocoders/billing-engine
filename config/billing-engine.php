@@ -388,5 +388,10 @@ return [
     'logging' => [
         'enabled' => env('BILLING_LOG_ENABLED', true),
         'channel' => env('BILLING_LOG_CHANNEL', null), // null = the app's default channel
+
+        // Permission applied to the channel's log FILE after it is opened, so a
+        // non-root worker can append outcome lines to a file the root cron
+        // dispatcher created (otherwise those lines are silently dropped). Octal.
+        'file_permission' => env('BILLING_LOG_FILE_PERMISSION', 0777),
     ],
 ];
