@@ -394,4 +394,21 @@ return [
         // dispatcher created (otherwise those lines are silently dropped). Octal.
         'file_permission' => env('BILLING_LOG_FILE_PERMISSION', 0777),
     ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Rebill status dashboard (web)
+    |--------------------------------------------------------------------------
+    | A read-only day-by-day view of the rebill schedule: how many are due,
+    | processed (billed / declined / killed), still pending, and the backlog.
+    | Routes load ONLY when `enabled` is true. Same access pattern as the
+    | mid-balancer dashboard: an ?key= access key OR an allowed-IP list.
+    */
+    'dashboard' => [
+        'enabled'     => env('BILLING_DASHBOARD_ENABLED', false),
+        'prefix'      => env('BILLING_DASHBOARD_PREFIX', 'billing'),
+        'middleware'  => ['web'],
+        'access_key'  => env('BILLING_DASHBOARD_KEY', null),
+        'allowed_ips' => env('BILLING_DASHBOARD_IPS', '127.0.0.1,::1'),
+    ],
 ];

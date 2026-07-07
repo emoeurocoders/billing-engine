@@ -110,6 +110,20 @@ class BillingEngineServiceProvider extends ServiceProvider
 
         $this->loadMigrationsFrom(__DIR__ . '/../database/migrations');
 
+        // Read-only rebill status dashboard. Views always available for override;
+        // routes load ONLY when the dashboard is enabled (same as mid-balancer).
+        $this->loadViewsFrom(__DIR__ . '/../resources/views', 'billing-engine');
+
+        if (config('billing-engine.dashboard.enabled', false)) {
+            $this->loadRoutesFrom(__DIR__ . '/../routes/web.php');
+        }
+
+        if ($this->app->runningInConsole()) {
+            $this->publishes([
+                __DIR__ . '/../resources/views' => resource_path('views/vendor/billing-engine'),
+            ], 'billing-engine-views');
+        }
+
         // Full per-action audit trail (SUCCESS/DECLINE/SKIP/DEAD/STEPDOWN) to the
         // configured log channel — the replacement for the legacy log() file.
         if (config('billing-engine.logging.enabled', true)) {
