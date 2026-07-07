@@ -81,6 +81,39 @@ class RebillStatusController extends Controller
         $scheduled       = (int) ($schedRow->c ?? 0);
         $scheduledAmount = (float) ($schedRow->amt ?? 0);
 
+        // --- Hourly distribution (MST wall-clock; next_action_at is stored in the
+        // billing tz). Upcoming hours = still-pending scheduled that hour; past
+        // hours = what actually processed (from the attempt log). ---
+        $schedByHour = $sched()->where('status', 'pending')
+            ->whereRaw('DATE(next_action_at) = ?', [$date])
+            ->selectRaw('HOUR(next_action_at) h, COUNT(*) c, COALESCE(SUM(amount),0) amt')
+            ->groupByRaw('HOUR(next_action_at)')->get()->keyBy('h');
+
+        $procByHour = $att()->whereRaw('DATE(`date`) = ?', [$date])
+            ->selectRaw('HOUR(`date`) h, COUNT(*) c, SUM(result = 1) ok, COALESCE(SUM(CASE WHEN result = 1 THEN amount ELSE 0 END),0) amt')
+            ->groupByRaw('HOUR(`date`)')->get()->keyBy('h');
+
+        $curHour = (int) $now->format('G');
+        $hourly  = [];
+        for ($h = 0; $h < 24; $h++) {
+            $s = $schedByHour[$h] ?? null;
+            $p = $procByHour[$h] ?? null;
+            $sc = (int) ($s->c ?? 0);
+            $pc = (int) ($p->c ?? 0);
+            if ($sc === 0 && $pc === 0) {
+                continue; // skip empty hours
+            }
+            $hourly[] = [
+                'hour'       => sprintf('%02d:00', $h),
+                'scheduled'  => $sc,
+                'sched_amt'  => round((float) ($s->amt ?? 0), 2),
+                'processed'  => $pc,
+                'billed'     => (int) ($p->ok ?? 0),
+                'billed_amt' => round((float) ($p->amt ?? 0), 2),
+                'state'      => !$isToday ? 'past' : ($h < $curHour ? 'past' : ($h === $curHour ? 'now' : 'future')),
+            ];
+        }
+
         // Recovery watch: pending rebills wrongly parked into a FUTURE cycle
         // (never charged) — the timezone-bug victims still awaiting recovery. The
         // claim_run marker is essential: it means the row was DISPATCHED then
@@ -114,6 +147,7 @@ class RebillStatusController extends Controller
                 'parked_next_cycle' => ['count' => $parkedNextCycle],
                 'approval_rate' => $attTotal > 0 ? round($approved / $attTotal * 100, 1) : 0,
             ],
+            'hourly' => $hourly,
         ]);
     }
 }

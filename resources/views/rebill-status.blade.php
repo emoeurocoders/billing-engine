@@ -33,6 +33,18 @@
         .card.alert { outline: 2px solid #fca5a5; }
         .card.warn { outline: 2px solid #fdba74; }
         .foot { color: #999; font-size: 12px; text-align: center; margin-top: 8px; }
+        .section { margin-top: 4px; margin-bottom: 20px; }
+        .section-title { font-size: 15px; font-weight: 600; margin-bottom: 10px; color: #555; }
+        table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+        thead th { background: #1a1a2e; color: #fff; padding: 9px 12px; text-align: left; font-size: 12px; text-transform: uppercase; letter-spacing: .5px; font-weight: 600; }
+        thead th.num, tbody td.num { text-align: right; }
+        tbody td { padding: 7px 12px; border-bottom: 1px solid #eee; font-family: 'SF Mono','Fira Code',monospace; font-size: 13px; }
+        tbody tr:last-child td { border-bottom: none; }
+        tr.past td { color: #9ca3af; }
+        tr.now td { background: #fffbeb; font-weight: 600; color: #333; }
+        tr.future td:first-child { color: #2563eb; }
+        .pill { font-size: 10px; text-transform: uppercase; letter-spacing: .5px; padding: 2px 7px; border-radius: 10px; margin-left: 8px; }
+        .pill-now { background: #f59e0b; color: #fff; }
     </style>
 </head>
 <body data-prefix="{{ $prefix }}">
@@ -69,6 +81,22 @@
             <div class="card"><div class="card-label">Scheduled today</div><div class="card-value gray" id="c_scheduled">0</div><div class="card-sub" id="c_scheduled_amt">$0.00</div></div>
             <div class="card" id="card_parked"><div class="card-label">Parked &rarr; next cycle</div><div class="card-value orange" id="c_parked">0</div><div class="card-sub">never charged (recovery watch)</div></div>
         </div>
+
+        <div class="section">
+            <div class="section-title">By hour (<span id="hourTz">MST</span>) &mdash; past = processed, upcoming = scheduled</div>
+            <table>
+                <thead><tr>
+                    <th>Hour</th>
+                    <th class="num">Scheduled</th>
+                    <th class="num">$ Scheduled</th>
+                    <th class="num">Processed</th>
+                    <th class="num">Billed</th>
+                    <th class="num">$ Billed</th>
+                </tr></thead>
+                <tbody id="hourlyBody"></tbody>
+            </table>
+        </div>
+
         <div class="foot">Read-only. Timezone <span id="tzfoot"></span>. Auto-refreshes every 20s when viewing today.</div>
     </div>
 
@@ -91,6 +119,23 @@
         }
         const money = n => '$' + Number(n || 0).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
         const num = n => Number(n || 0).toLocaleString('en-US');
+        const cell = v => v ? v : '<span style="color:#ccc">&middot;</span>';
+
+        function renderHourly(rows) {
+            const tb = document.getElementById('hourlyBody');
+            if (!rows || !rows.length) { tb.innerHTML = '<tr><td colspan="6" style="color:#999">No rebills for this day.</td></tr>'; return; }
+            tb.innerHTML = rows.map(r => {
+                const pill = r.state === 'now' ? ' <span class="pill pill-now">now</span>' : '';
+                return '<tr class="' + r.state + '">'
+                    + '<td>' + r.hour + pill + '</td>'
+                    + '<td class="num">' + cell(r.scheduled && num(r.scheduled)) + '</td>'
+                    + '<td class="num">' + cell(r.sched_amt && money(r.sched_amt)) + '</td>'
+                    + '<td class="num">' + cell(r.processed && num(r.processed)) + '</td>'
+                    + '<td class="num">' + cell(r.billed && num(r.billed)) + '</td>'
+                    + '<td class="num">' + cell(r.billed_amt && money(r.billed_amt)) + '</td>'
+                    + '</tr>';
+            }).join('');
+        }
 
         function render(d) {
             const c = d.cards;
@@ -119,6 +164,8 @@
             document.getElementById('updated').textContent = (d.updated_at || '').slice(11, 19) || '—';
             document.getElementById('tz').textContent = d.tz;
             document.getElementById('tzfoot').textContent = d.tz;
+            document.getElementById('hourTz').textContent = d.tz;
+            renderHourly(d.hourly);
             const live = d.is_today;
             const badge = document.getElementById('liveBadge');
             badge.textContent = live ? 'Live' : 'History';
