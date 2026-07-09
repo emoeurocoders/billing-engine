@@ -119,11 +119,34 @@ class RebillStatusController extends Controller
         // claim_run marker is essential: it means the row was DISPATCHED then
         // deferred, which separates a real victim from a legitimately future-due
         // row (a member genuinely billing next cycle, which has no claim_run).
-        $nextCycleStart = $now->copy()->startOfMonth()->addMonth()->toDateString();
-        $parkedNextCycle = (int) $sched()->where('status', 'pending')->where('attempts', 0)
-            ->where('meta', 'like', '%claim_run%')
-            ->where('next_action_at', '>=', $nextCycleStart)
-            ->count();
+        // --- COMMENTED OUT (recovery complete); kept for easy restore. ---
+        // $nextCycleStart = $now->copy()->startOfMonth()->addMonth()->toDateString();
+        // $parkedNextCycle = (int) $sched()->where('status', 'pending')->where('attempts', 0)
+        //     ->where('meta', 'like', '%claim_run%')
+        //     ->where('next_action_at', '>=', $nextCycleStart)
+        //     ->count();
+
+        // Inactive-MID skips: pending rebills scheduled for the day whose sticky
+        // MID is INACTIVE (active=0) with NO redirect_mid set. The resolver can't
+        // return a live MID and has no redirect to follow, so every one of these
+        // is SKIPPED today (deferred, never charged) until the MID is reactivated
+        // or a redirect is added. Read the dead-MID set from the same mids table
+        // the resolver uses (its own connection), then match by sticky mid_id —
+        // avoids a cross-connection join if mids ever moves off the default.
+        $midsConn  = config('billing-engine.mids.connection');
+        $midsTable = config('billing-engine.mids.table', 'mids');
+        $deadMidIds = DB::connection($midsConn)->table($midsTable)
+            ->where('active', 0)
+            ->where(fn ($q) => $q->whereNull('redirect_mid')->orWhere('redirect_mid', ''))
+            ->pluck('mid_id')->all();
+        $inactiveMidRow = $sched()->where('status', 'pending')
+            ->whereRaw('DATE(next_action_at) = ?', [$date])
+            ->whereIn('mid_id', $deadMidIds ?: ['__none__'])
+            ->selectRaw('COUNT(*) c, COALESCE(SUM(amount),0) amt, COUNT(DISTINCT mid_id) mids')
+            ->first();
+        $inactiveMid     = (int) ($inactiveMidRow->c ?? 0);
+        $inactiveMidAmt  = (float) ($inactiveMidRow->amt ?? 0);
+        $inactiveMidMids = (int) ($inactiveMidRow->mids ?? 0);
 
         // Progress = processed vs the day's TOTAL scheduled volume (processed +
         // still-scheduled-today). Climbs toward 100% as the day's queue drains.
@@ -144,7 +167,12 @@ class RebillStatusController extends Controller
                 'processed' => ['count' => $processed],
                 'due_now'   => ['count' => $dueNow, 'amount' => round($dueNowAmt, 2)],
                 'scheduled' => ['count' => $scheduled, 'amount' => round($scheduledAmount, 2)],
-                'parked_next_cycle' => ['count' => $parkedNextCycle],
+                // 'parked_next_cycle' => ['count' => $parkedNextCycle], // COMMENTED OUT
+                'inactive_mid' => [
+                    'count'  => $inactiveMid,
+                    'amount' => round($inactiveMidAmt, 2),
+                    'mids'   => $inactiveMidMids,
+                ],
                 'approval_rate' => $attTotal > 0 ? round($approved / $attTotal * 100, 1) : 0,
             ],
             'hourly' => $hourly,

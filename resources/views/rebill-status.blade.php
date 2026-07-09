@@ -79,7 +79,8 @@
             <div class="card"><div class="card-label">Processed</div><div class="card-value blue" id="c_processed">0</div></div>
             <div class="card" id="card_duenow"><div class="card-label">Due now</div><div class="card-value" id="c_due_now">0</div><div class="card-sub">pending &middot; time arrived</div></div>
             <div class="card"><div class="card-label">Scheduled today</div><div class="card-value gray" id="c_scheduled">0</div><div class="card-sub" id="c_scheduled_amt">$0.00</div></div>
-            <div class="card" id="card_parked"><div class="card-label">Parked &rarr; next cycle</div><div class="card-value orange" id="c_parked">0</div><div class="card-sub">never charged (recovery watch)</div></div>
+            {{-- <div class="card" id="card_parked"><div class="card-label">Parked &rarr; next cycle</div><div class="card-value orange" id="c_parked">0</div><div class="card-sub">never charged (recovery watch)</div></div> --}}
+            <div class="card" id="card_inactive_mid"><div class="card-label">Inactive MID (no redirect)</div><div class="card-value orange" id="c_inactive_mid">0</div><div class="card-sub" id="c_inactive_mid_sub">will be skipped today</div></div>
         </div>
 
         <div class="section">
@@ -148,14 +149,17 @@
             document.getElementById('c_due_now').textContent = num(c.due_now.count);
             document.getElementById('c_scheduled').textContent = num(c.scheduled.count);
             document.getElementById('c_scheduled_amt').textContent = money(c.scheduled.amount);
-            document.getElementById('c_parked').textContent = num(c.parked_next_cycle.count);
+            document.getElementById('c_inactive_mid').textContent = num(c.inactive_mid.count);
+            document.getElementById('c_inactive_mid_sub').textContent = money(c.inactive_mid.amount) + ' · ' + num(c.inactive_mid.mids) + ' MIDs · skipped today';
 
             // Due-now is the backlog to watch: green when clear, orange normal churn,
             // red only if it piles up well past one dispatch batch.
             const dn = c.due_now.count;
             document.getElementById('card_duenow').className = 'card' + (dn > 2000 ? ' alert' : '');
             document.getElementById('c_due_now').className = 'card-value ' + (dn > 2000 ? 'red' : (dn > 0 ? 'orange' : 'green'));
-            document.getElementById('card_parked').className = 'card' + (c.parked_next_cycle.count > 0 ? ' warn' : '');
+            const im = c.inactive_mid.count;
+            document.getElementById('card_inactive_mid').className = 'card' + (im > 0 ? ' warn' : '');
+            document.getElementById('c_inactive_mid').className = 'card-value ' + (im > 0 ? 'orange' : 'green');
 
             document.getElementById('progressPct').textContent = d.progress + '%';
             document.getElementById('progressFill').style.width = Math.min(100, d.progress) + '%';
