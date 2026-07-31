@@ -53,9 +53,32 @@ class RebillStatusController extends Controller
         $declined     = (int) ($attempts[0]->c ?? 0);
         $attTotal     = $approved + $declined;
 
+        // Every row the claimer picked up on $date, whatever became of it (billed /
+        // declined / skipped / killed / still in flight). Read ONCE and reduced in
+        // PHP — it feeds the kill count, the hourly Queued/Neg DB/Skipped columns,
+        // and the skip derivation. claimed_at carries no index, so each pass over
+        // it is a scan of a multi-million-row table. A range predicate (not
+        // DATE(claimed_at)) keeps it sargable, so adding INDEX(claimed_at) later
+        // fixes the cost with no query change. Volume is one day of claims.
+        $claimed = $sched()
+            ->whereBetween('claimed_at', [$date . ' 00:00:00', $date . ' 23:59:59'])
+            ->selectRaw('id, status, amount, HOUR(claimed_at) h')
+            ->get();
+
         // Rows KILLED on $date (guard dead: refund/cancel/chargeback/max-declines).
-        $killed = (int) $sched()->where('status', 'dead')
-            ->whereRaw('DATE(updated_at) = ?', [$date])->count();
+        //
+        // Counted via claimed_at, NOT updated_at, and that distinction is load-
+        // bearing. The engine writes next_action_at / claimed_at / the attempt
+        // `date` through Clock in the BILLING timezone (MST7MDT), but updated_at is
+        // stamped by Eloquent's save() in the APP timezone (UTC — see Clock's
+        // docblock). Bucketing on updated_at therefore read ~6-7 hours ahead of
+        // every other column: today's kills appeared in FUTURE hours, and
+        // DATE(updated_at) = $date dragged in the previous MST evening as well.
+        // claimed_at is the right anchor anyway — a guard kills a row inside the
+        // job that claimed it, so the kill belongs to the hour that dispatched it,
+        // which is what makes Queued = Neg DB + Skipped + Attempted balance.
+        $killedRows = $claimed->where('status', 'dead');
+        $killed     = $killedRows->count();
 
         $processed = $approved + $declined + $killed;
 
@@ -100,18 +123,7 @@ class RebillStatusController extends Controller
             ->selectRaw('HOUR(next_action_at) h, COUNT(*) c, COALESCE(SUM(amount),0) amt')
             ->groupByRaw('HOUR(next_action_at)')->get()->keyBy('h');
 
-        // Every row the claimer picked up on $date, whatever became of it (billed /
-        // declined / skipped / killed / still in flight). Read ONCE and reduced in
-        // PHP, because it feeds both the dispatched counts and the skip derivation
-        // below — and claimed_at carries no index, so each pass over it is a scan
-        // of a multi-million-row table. A range predicate (not DATE(claimed_at))
-        // keeps it sargable, so adding INDEX(claimed_at) later fixes the cost with
-        // no query change. Volume here is one day of claims (~10-20k rows).
-        $claimed = $sched()
-            ->whereBetween('claimed_at', [$date . ' 00:00:00', $date . ' 23:59:59'])
-            ->selectRaw('id, status, amount, HOUR(claimed_at) h')
-            ->get();
-
+        // Dispatched per hour, off the single $claimed read taken above.
         $dispByHour = $dispAmtByHour = [];
         foreach ($claimed as $row) {
             $h = (int) $row->h;
@@ -123,15 +135,17 @@ class RebillStatusController extends Controller
             ->selectRaw('HOUR(`date`) h, COUNT(*) c, SUM(result = 1) ok, COALESCE(SUM(CASE WHEN result = 1 THEN amount ELSE 0 END),0) amt')
             ->groupByRaw('HOUR(`date`)')->get()->keyBy('h');
 
-        // Killed that hour. NOTE: this is every DEAD row, not only negative-db hits
-        // — max_declines and already_attempted_approved also kill a row, and the
-        // guard's reason string is not persisted, so the three cannot be split
+        // Killed per hour — same claim-hour anchor as Queued (see $killedRows for
+        // why NOT updated_at). NOTE: this is every DEAD row, not only negative-db
+        // hits — max_declines and already_attempted_approved also kill a row, and
+        // the guard's reason string is not persisted, so the three cannot be split
         // apart until a skip/dead reason is recorded. Column reads "Neg DB"
         // because neg-db is the overwhelming majority.
-        $deadByHour = $sched()->where('status', 'dead')
-            ->whereRaw('DATE(updated_at) = ?', [$date])
-            ->selectRaw('HOUR(updated_at) h, COUNT(*) c')
-            ->groupByRaw('HOUR(updated_at)')->get()->keyBy('h');
+        $deadByHour = [];
+        foreach ($killedRows as $row) {
+            $h = (int) $row->h;
+            $deadByHour[$h] = ($deadByHour[$h] ?? 0) + 1;
+        }
 
         $skippedByHour = $this->skippedByHour($claimed, $att, $date, $isToday);
 
@@ -140,13 +154,12 @@ class RebillStatusController extends Controller
         for ($h = 0; $h < 24; $h++) {
             $s = $schedByHour[$h] ?? null;
             $p = $procByHour[$h] ?? null;
-            $k = $deadByHour[$h] ?? null;
 
             $queued    = (int) ($s->c ?? 0) + ($dispByHour[$h] ?? 0);
             $queuedAmt = (float) ($s->amt ?? 0) + ($dispAmtByHour[$h] ?? 0);
             $attempted = (int) ($p->c ?? 0);
             $billed    = (int) ($p->ok ?? 0);
-            $negDb     = (int) ($k->c ?? 0);
+            $negDb     = $deadByHour[$h] ?? 0;
             // null (not 0) on a historical day = "we can't know", rendered as a dash.
             $skipped   = $skippedByHour === null ? null : ($skippedByHour[$h] ?? 0);
 
