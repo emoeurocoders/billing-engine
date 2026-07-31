@@ -58,6 +58,26 @@ return [
         'table'      => env('BILLING_ATTEMPTS_TABLE', 'billing_attempts_' . env('BILLING_VERTICAL', 'sports')),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Non-charge outcome log (skips + kills)
+    |--------------------------------------------------------------------------
+    | billing_events_{vertical} — one row per SKIP or DEAD, the outcomes a guard
+    | produces BEFORE any charge, so the attempt log never sees them. Written by
+    | BillingEventLogger as an event subscriber; nothing in the billing path or
+    | the existing tables changes. Turn `enabled` off and the engine behaves
+    | exactly as before (the dashboard then falls back to deriving today's skips
+    | from claim timestamps, and shows nothing for past days).
+    |
+    | Run `php artisan migrate` after enabling — writes are guarded, so a missing
+    | table costs you the data, not the charge.
+    */
+    'events' => [
+        'enabled'    => env('BILLING_EVENTS_ENABLED', true),
+        'connection' => env('BILLING_EVENTS_CONNECTION', null), // null = default
+        'table'      => env('BILLING_EVENTS_TABLE', 'billing_events_' . env('BILLING_VERTICAL', 'sports')),
+    ],
+
     'log' => [
         'dual_write' => env('BILLING_LOG_DUAL_WRITE', true), // write unified + legacy
         'legacy'     => env('BILLING_LOG_LEGACY', true),     // include legacy tables as a write target

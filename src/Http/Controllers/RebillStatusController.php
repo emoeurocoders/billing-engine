@@ -16,6 +16,9 @@ use Omni\BillingEngine\Support\Clock;
  */
 class RebillStatusController extends Controller
 {
+    private ?string $eventsFrom = null;
+    private bool $eventsFromResolved = false;
+
     public function index()
     {
         return view('billing-engine::rebill-status', [
@@ -147,7 +150,15 @@ class RebillStatusController extends Controller
             $deadByHour[$h] = ($deadByHour[$h] ?? 0) + 1;
         }
 
-        $skippedByHour = $this->skippedByHour($claimed, $att, $date, $isToday);
+        // Skips, best source first: the recorded events table (exact, any day),
+        // else the live derivation (exact, today only), else nothing.
+        $skippedByHour  = $this->skippedFromEvents($date);
+        $skippedSource  = $skippedByHour !== null ? 'events' : null;
+
+        if ($skippedByHour === null) {
+            $skippedByHour = $this->skippedByHour($claimed, $att, $date, $isToday);
+            $skippedSource = $skippedByHour !== null ? 'derived' : null;
+        }
 
         $curHour = (int) $now->format('G');
         $hourly  = [];
@@ -291,10 +302,85 @@ class RebillStatusController extends Controller
                 'approval_rate' => $attTotal > 0 ? round($approved / $attTotal * 100, 1) : 0,
             ],
             'hourly' => $hourly,
-            // False ⇒ the Skipped column is blank because it can't be reconstructed
-            // for a past day (see skippedByHour), not because nothing was skipped.
-            'skipped_available' => $isToday,
+            // null ⇒ the Skipped column is blank because there is no data for this
+            // day, not because nothing was skipped. 'events' = recorded per
+            // occurrence; 'derived' = inferred from claim state (today only).
+            'skipped_source' => $skippedSource,
+            'events_from'    => $this->eventsFrom(),
         ]);
+    }
+
+    /**
+     * Recorded skips for $date, bucketed by the hour they happened.
+     *
+     * This is the authoritative source: BillingEventLogger writes one row per
+     * occurrence to billing_events_{vertical}, so a past day stays exact forever
+     * instead of decaying as rows are re-claimed. occurred_at is written in the
+     * billing timezone, so HOUR() lines up with every other column here.
+     *
+     * Returns null — meaning "fall back to the derivation" — when recording is
+     * off, the table isn't migrated yet, or $date predates the first recorded
+     * event. That last check matters after deploy: without it every historical
+     * day would confidently report zero skips.
+     *
+     * @return array<int,int>|null hour => count
+     */
+    private function skippedFromEvents(string $date): ?array
+    {
+        $from = $this->eventsFrom();
+
+        if ($from === null || $date < $from) {
+            return null;
+        }
+
+        try {
+            $rows = $this->events()
+                ->where('billing_type', 'rebill')
+                ->where('outcome', 'skipped')
+                ->whereBetween('occurred_at', [$date . ' 00:00:00', $date . ' 23:59:59'])
+                ->selectRaw('HOUR(occurred_at) h, COUNT(*) c')
+                ->groupByRaw('HOUR(occurred_at)')->get();
+        } catch (\Throwable $e) {
+            return null;
+        }
+
+        $byHour = [];
+        foreach ($rows as $row) {
+            $byHour[(int) $row->h] = (int) $row->c;
+        }
+
+        return $byHour;
+    }
+
+    /**
+     * The first date the events table has data for — everything before it is
+     * blank rather than zero. Null when recording is off or not yet migrated.
+     */
+    private function eventsFrom(): ?string
+    {
+        if ($this->eventsFromResolved) {
+            return $this->eventsFrom; // asked twice per request; MIN() once
+        }
+
+        $this->eventsFromResolved = true;
+
+        if (!config('billing-engine.events.enabled', true)) {
+            return null;
+        }
+
+        try {
+            $first = $this->events()->min('occurred_at');
+        } catch (\Throwable $e) {
+            return null; // table not migrated yet
+        }
+
+        return $this->eventsFrom = $first ? substr((string) $first, 0, 10) : null;
+    }
+
+    private function events()
+    {
+        return DB::connection(config('billing-engine.events.connection'))
+            ->table(config('billing-engine.events.table', 'billing_events_sports'));
     }
 
     /**

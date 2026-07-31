@@ -21,6 +21,7 @@ use Omni\BillingEngine\Guards\MidCap;
 use Omni\BillingEngine\Guards\NegativeDb;
 use Omni\BillingEngine\Guards\SameDay;
 use Omni\BillingEngine\Loggers\BillingAttemptsLogger;
+use Omni\BillingEngine\Loggers\BillingEventLogger;
 use Omni\BillingEngine\Loggers\DualAttemptLogger;
 use Omni\BillingEngine\Loggers\LogTableAttemptLogger;
 use Omni\BillingEngine\Pipeline\GuardRunner;
@@ -128,6 +129,13 @@ class BillingEngineServiceProvider extends ServiceProvider
         // configured log channel — the replacement for the legacy log() file.
         if (config('billing-engine.logging.enabled', true)) {
             Event::subscribe(BillingLogSubscriber::class);
+        }
+
+        // Durable SKIP/DEAD rows in billing_events_{vertical}. Separate from the
+        // audit log above: that writes text to a file, this writes queryable rows
+        // so reporting can show skips for ANY past day. Writes are guarded.
+        if (config('billing-engine.events.enabled', true)) {
+            Event::subscribe(BillingEventLogger::class);
         }
     }
 }

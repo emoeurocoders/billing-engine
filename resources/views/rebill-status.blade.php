@@ -135,12 +135,19 @@
         const num = n => Number(n || 0).toLocaleString('en-US');
         const cell = v => v ? v : '<span style="color:#ccc">&middot;</span>';
 
-        function renderHourly(rows, skippedAvailable) {
+        function renderHourly(rows, skippedSource, eventsFrom) {
             const tb = document.getElementById('hourlyBody');
             const note = document.getElementById('hourlyNote');
-            note.innerHTML = skippedAvailable
-                ? 'Skipped = dispatched but deferred by a guard (no usable MID, same-day, already attempted). Derived live from the current queue state.'
-                : 'Past days: Skipped is blank and Queued under-reports. Deferrals aren’t stored, and the claim timestamp both are derived from is overwritten when a row is retried.';
+            const skipDef = 'Skipped = deferred by a guard (no usable MID, same-day, already attempted). ';
+            if (skippedSource === 'events') {
+                note.textContent = skipDef + 'Recorded per event.';
+            } else if (skippedSource === 'derived') {
+                note.textContent = skipDef + 'Derived live from the current queue state — today only.';
+            } else {
+                note.textContent = 'Skipped is blank for this day: it predates skip recording'
+                    + (eventsFrom ? ', which starts ' + eventsFrom : '')
+                    + '. Queued also under-reports on days before that, since the claim timestamp it uses is overwritten when a row is retried.';
+            }
             if (!rows || !rows.length) { tb.innerHTML = '<tr><td colspan="10" style="color:#999">No rebills for this day.</td></tr>'; return; }
             tb.innerHTML = rows.map(r => {
                 const pill = r.state === 'now' ? ' <span class="pill pill-now">now</span>' : '';
@@ -205,7 +212,7 @@
             document.getElementById('tz').textContent = d.tz;
             document.getElementById('tzfoot').textContent = d.tz;
             document.getElementById('hourTz').textContent = d.tz;
-            renderHourly(d.hourly, d.skipped_available);
+            renderHourly(d.hourly, d.skipped_source, d.events_from);
             const live = d.is_today;
             const badge = document.getElementById('liveBadge');
             badge.textContent = live ? 'Live' : 'History';
