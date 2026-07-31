@@ -19,7 +19,7 @@
         .badge { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; text-transform: uppercase; }
         .badge-live { background: #22c55e; color: #fff; }
         .badge-hist { background: #6b7280; color: #fff; }
-        .container { max-width: 1200px; margin: 0 auto; padding: 20px 24px; }
+        .container { max-width: 1320px; margin: 0 auto; padding: 20px 24px; }
         .progress-wrap { background: #fff; border-radius: 8px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); margin-bottom: 20px; }
         .progress-top { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 13px; color: #555; }
         .progress-bar { height: 12px; background: #eee; border-radius: 6px; overflow: hidden; }
@@ -35,11 +35,16 @@
         .foot { color: #999; font-size: 12px; text-align: center; margin-top: 8px; }
         .section { margin-top: 4px; margin-bottom: 20px; }
         .section-title { font-size: 15px; font-weight: 600; margin-bottom: 10px; color: #555; }
-        table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
-        thead th { background: #1a1a2e; color: #fff; padding: 9px 12px; text-align: left; font-size: 12px; text-transform: uppercase; letter-spacing: .5px; font-weight: 600; }
+        .table-wrap { overflow-x: auto; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+        table { width: 100%; border-collapse: collapse; background: #fff; }
+        thead th { background: #1a1a2e; color: #fff; padding: 9px 10px; text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .4px; font-weight: 600; white-space: nowrap; }
         thead th.num, tbody td.num { text-align: right; }
-        tbody td { padding: 7px 12px; border-bottom: 1px solid #eee; font-family: 'SF Mono','Fira Code',monospace; font-size: 13px; }
+        thead th[title] { cursor: help; }
+        tbody td { padding: 7px 10px; border-bottom: 1px solid #eee; font-family: 'SF Mono','Fira Code',monospace; font-size: 12.5px; white-space: nowrap; }
         tbody tr:last-child td { border-bottom: none; }
+        tbody td.sep { border-left: 1px solid #eee; }
+        thead th.sep { border-left: 1px solid rgba(255,255,255,.18); }
+        .note { color: #999; font-size: 12px; margin-top: 8px; }
         tr.past td { color: #9ca3af; }
         tr.now td { background: #fffbeb; font-weight: 600; color: #333; }
         tr.future td:first-child { color: #2563eb; }
@@ -81,21 +86,29 @@
             <div class="card"><div class="card-label">Scheduled today</div><div class="card-value gray" id="c_scheduled">0</div><div class="card-sub" id="c_scheduled_amt">$0.00</div></div>
             {{-- <div class="card" id="card_parked"><div class="card-label">Parked &rarr; next cycle</div><div class="card-value orange" id="c_parked">0</div><div class="card-sub">never charged (recovery watch)</div></div> --}}
             <div class="card" id="card_inactive_mid"><div class="card-label">Inactive MID (no redirect)</div><div class="card-value orange" id="c_inactive_mid">0</div><div class="card-sub" id="c_inactive_mid_sub">will be skipped today</div></div>
+            <div class="card" id="card_redirect_mid"><div class="card-label">Matching MID redirect</div><div class="card-value" id="c_redirect_mid">0</div><div class="card-sub" id="c_redirect_mid_sub">bill via redirect</div></div>
         </div>
 
         <div class="section">
-            <div class="section-title">By hour (<span id="hourTz">MST</span>) &mdash; past = processed, upcoming = scheduled</div>
+            <div class="section-title">By hour (<span id="hourTz">MST</span>) &mdash; queued = neg&nbsp;db + skipped + attempted</div>
+            <div class="table-wrap">
             <table>
                 <thead><tr>
                     <th>Hour</th>
-                    <th class="num">Scheduled</th>
-                    <th class="num">$ Scheduled</th>
-                    <th class="num">Processed</th>
+                    <th class="num" title="Rows dispatched that hour, plus rows still pending and due that hour">Queued</th>
+                    <th class="num">Queued&nbsp;$</th>
+                    <th class="num" title="Rows killed that hour. Mostly negative-db, but also max-declines — the guard reason is not stored, so they can't be split yet.">Neg&nbsp;DB</th>
+                    <th class="num" title="Dispatched but deferred by a guard (no usable MID, same-day, already attempted…). Today only — see the note below the table.">Skipped</th>
+                    <th class="num sep" title="Charges actually sent to the gateway">Attempted</th>
+                    <th class="num">Declined</th>
                     <th class="num">Billed</th>
-                    <th class="num">$ Billed</th>
+                    <th class="num">Approval&nbsp;%</th>
+                    <th class="num">$&nbsp;Billed</th>
                 </tr></thead>
                 <tbody id="hourlyBody"></tbody>
             </table>
+            </div>
+            <div class="note" id="hourlyNote"></div>
         </div>
 
         <div class="foot">Read-only. Timezone <span id="tzfoot"></span>. Auto-refreshes every 20s when viewing today.</div>
@@ -122,17 +135,29 @@
         const num = n => Number(n || 0).toLocaleString('en-US');
         const cell = v => v ? v : '<span style="color:#ccc">&middot;</span>';
 
-        function renderHourly(rows) {
+        function renderHourly(rows, skippedAvailable) {
             const tb = document.getElementById('hourlyBody');
-            if (!rows || !rows.length) { tb.innerHTML = '<tr><td colspan="6" style="color:#999">No rebills for this day.</td></tr>'; return; }
+            const note = document.getElementById('hourlyNote');
+            note.innerHTML = skippedAvailable
+                ? 'Skipped = dispatched but deferred by a guard (no usable MID, same-day, already attempted). Derived live from the current queue state.'
+                : 'Past days: Skipped is blank and Queued under-reports. Deferrals aren’t stored, and the claim timestamp both are derived from is overwritten when a row is retried.';
+            if (!rows || !rows.length) { tb.innerHTML = '<tr><td colspan="10" style="color:#999">No rebills for this day.</td></tr>'; return; }
             tb.innerHTML = rows.map(r => {
                 const pill = r.state === 'now' ? ' <span class="pill pill-now">now</span>' : '';
+                // null (past day) is unknown, not zero — show a dash, not a placeholder dot.
+                const skipped = r.skipped === null
+                    ? '<span style="color:#ccc" title="not available for past days">&mdash;</span>'
+                    : cell(r.skipped && num(r.skipped));
                 return '<tr class="' + r.state + '">'
                     + '<td>' + r.hour + pill + '</td>'
-                    + '<td class="num">' + cell(r.scheduled && num(r.scheduled)) + '</td>'
-                    + '<td class="num">' + cell(r.sched_amt && money(r.sched_amt)) + '</td>'
-                    + '<td class="num">' + cell(r.processed && num(r.processed)) + '</td>'
+                    + '<td class="num">' + cell(r.queued && num(r.queued)) + '</td>'
+                    + '<td class="num">' + cell(r.queued_amt && money(r.queued_amt)) + '</td>'
+                    + '<td class="num">' + cell(r.neg_db && num(r.neg_db)) + '</td>'
+                    + '<td class="num">' + skipped + '</td>'
+                    + '<td class="num sep">' + cell(r.attempted && num(r.attempted)) + '</td>'
+                    + '<td class="num">' + cell(r.declined && num(r.declined)) + '</td>'
                     + '<td class="num">' + cell(r.billed && num(r.billed)) + '</td>'
+                    + '<td class="num">' + cell(r.approval !== null && r.approval + '%') + '</td>'
                     + '<td class="num">' + cell(r.billed_amt && money(r.billed_amt)) + '</td>'
                     + '</tr>';
             }).join('');
@@ -150,16 +175,27 @@
             document.getElementById('c_scheduled').textContent = num(c.scheduled.count);
             document.getElementById('c_scheduled_amt').textContent = money(c.scheduled.amount);
             document.getElementById('c_inactive_mid').textContent = num(c.inactive_mid.count);
-            document.getElementById('c_inactive_mid_sub').textContent = money(c.inactive_mid.amount) + ' · ' + num(c.inactive_mid.mids) + ' MIDs · skipped today';
+            // A dead redirect is the same outcome (skipped) with a different fix —
+            // repoint the redirect rather than add one — so it rides along here.
+            const dr = c.dead_redirect || {count: 0};
+            document.getElementById('c_inactive_mid_sub').textContent =
+                money(c.inactive_mid.amount) + ' · ' + num(c.inactive_mid.mids) + ' MIDs · skipped today'
+                + (dr.count ? ' · +' + num(dr.count) + ' dead redirect' : '');
+
+            document.getElementById('c_redirect_mid').textContent = num(c.redirect_mid.count);
+            document.getElementById('c_redirect_mid_sub').textContent =
+                money(c.redirect_mid.amount) + ' · ' + num(c.redirect_mid.mids) + ' MIDs · bill via redirect';
 
             // Due-now is the backlog to watch: green when clear, orange normal churn,
             // red only if it piles up well past one dispatch batch.
             const dn = c.due_now.count;
             document.getElementById('card_duenow').className = 'card' + (dn > 2000 ? ' alert' : '');
             document.getElementById('c_due_now').className = 'card-value ' + (dn > 2000 ? 'red' : (dn > 0 ? 'orange' : 'green'));
-            const im = c.inactive_mid.count;
+            const im = c.inactive_mid.count + dr.count; // both buckets are skips
             document.getElementById('card_inactive_mid').className = 'card' + (im > 0 ? ' warn' : '');
             document.getElementById('c_inactive_mid').className = 'card-value ' + (im > 0 ? 'orange' : 'green');
+            // Redirects are the good outcome — these members bill today, so no warn outline.
+            document.getElementById('c_redirect_mid').className = 'card-value ' + (c.redirect_mid.count > 0 ? 'blue' : 'gray');
 
             document.getElementById('progressPct').textContent = d.progress + '%';
             document.getElementById('progressFill').style.width = Math.min(100, d.progress) + '%';
@@ -169,7 +205,7 @@
             document.getElementById('tz').textContent = d.tz;
             document.getElementById('tzfoot').textContent = d.tz;
             document.getElementById('hourTz').textContent = d.tz;
-            renderHourly(d.hourly);
+            renderHourly(d.hourly, d.skipped_available);
             const live = d.is_today;
             const badge = document.getElementById('liveBadge');
             badge.textContent = live ? 'Live' : 'History';
