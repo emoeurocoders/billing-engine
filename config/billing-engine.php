@@ -161,6 +161,10 @@ return [
         'hard_decline_stack' => ['111', '159'],
         // Declines since the last approval that trigger a permanent stop.
         'max_declines'       => 3,
+        // Codes excluded from that count: merchant-side failures (407 = Invalid
+        // merchant ID) are the MID's fault, not the cardholder's — counting them
+        // would push paying members into the negative db whenever a MID breaks.
+        'decline_count_exclude' => ['407'],
         // card_type → the product UDF set used to scope the credit / hard-decline checks.
         'product_udfs'       => [
             'cc' => ['CC', 'CCC', 'CCR'],

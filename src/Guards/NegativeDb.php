@@ -68,6 +68,9 @@ class NegativeDb implements BillingGuard
         'hard_decline'       => ['106', '107', '111', '112', '123', '164', '165', '201', '264', '460'],
         'hard_decline_stack' => ['111', '159'],
         'max_declines'       => 3,
+        // Merchant-side failure codes (407 = Invalid merchant ID) — never the
+        // cardholder's fault, so they don't count toward the decline ceiling.
+        'decline_count_exclude' => ['407'],
         'product_udfs'       => [
             'cc' => ['CC', 'CCC', 'CCR'],
             'pp' => ['PP', 'PPC', 'PPR'],
@@ -161,8 +164,9 @@ class NegativeDb implements BillingGuard
         }
 
         // 9. Too many declines since the last approval (all products, amount > 2).
-        $max = (int) ($cfg['max_declines'] ?? 3);
-        if ($max > 0 && $this->declinesSinceLastApproval($ctx, $conn, $t['transactions'], $c) >= $max) {
+        $max     = (int) ($cfg['max_declines'] ?? 3);
+        $exclude = array_map('strval', $cfg['decline_count_exclude'] ?? []);
+        if ($max > 0 && $this->declinesSinceLastApproval($ctx, $conn, $t['transactions'], $c, $exclude) >= $max) {
             return 'max_declines';
         }
 
@@ -188,6 +192,7 @@ class NegativeDb implements BillingGuard
             'hard_decline'       => $o['hard_decline'] ?? $d['hard_decline'],
             'hard_decline_stack' => $o['hard_decline_stack'] ?? $d['hard_decline_stack'],
             'max_declines'       => $o['max_declines'] ?? $d['max_declines'],
+            'decline_count_exclude' => $o['decline_count_exclude'] ?? $d['decline_count_exclude'],
             'product_udfs'       => array_replace($d['product_udfs'], $o['product_udfs'] ?? []),
             'blacklisted_geo'    => $o['blacklisted_geo'] ?? $d['blacklisted_geo'],
         ];
@@ -208,7 +213,7 @@ class NegativeDb implements BillingGuard
     }
 
     /** Count declines (amount > 2) after the member's most recent approval. */
-    private function declinesSinceLastApproval(BillingContext $ctx, string $conn, string $txTable, array $c): int
+    private function declinesSinceLastApproval(BillingContext $ctx, string $conn, string $txTable, array $c, array $exclude = []): int
     {
         $lastApproved = DB::connection($conn)->table($txTable)
             ->where($c['member'], $ctx->memberId())
@@ -220,6 +225,10 @@ class NegativeDb implements BillingGuard
             ->where($c['member'], $ctx->memberId())
             ->where($c['resp'], '!=', 0)
             ->where($c['amount'], '>', 2);
+
+        if ($exclude) {
+            $q->whereNotIn($c['resp'], $exclude);
+        }
 
         if ($lastApproved) {
             $q->where($c['date'], '>', $lastApproved);
