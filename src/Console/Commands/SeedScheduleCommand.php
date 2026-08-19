@@ -16,7 +16,7 @@ use Omni\BillingEngine\Support\Clock;
  *   - DAILY on a schedule for one-shot settle/convert enrolment (new auths
  *     crossing their +N-day mark each day).
  *
- *   billing:seed-schedule {vertical} [--type=settle] [--dry-run] [--spread-hours=6]
+ *   billing:seed-schedule {vertical} [--type=settle] [--dry-run] [--spread-hours=6] [--since=Y-m-d]
  *
  * Vertical-specific SQL lives in the app, exposed as a generator closure bound
  * to 'billing.seedSource'. It yields candidate arrays:
@@ -39,6 +39,7 @@ class SeedScheduleCommand extends Command
         {--type=* : Limit to these billing types}
         {--dry-run : Compute and report, write nothing}
         {--spread-hours=6 : Spread overdue backlog across N hours}
+        {--since= : Only source rows anchored on/after this date (Y-m-d or Y-m-d H:i:s, stack tz); overrides billing-engine.seed.tickets_since for this run}
         {--refresh-meta : Do NOT insert; merge fresh source meta (bin/ip/zip/…) onto EXISTING rows by idempotency_key}';
 
     protected $description = 'Backfill billing_schedule from the legacy ledger (idempotent, re-runnable)';
@@ -48,6 +49,16 @@ class SeedScheduleCommand extends Command
         $vertical = $this->argument('vertical');
         $dryRun   = (bool) $this->option('dry-run');
         $spread   = max(1, (int) $this->option('spread-hours')) * 3600;
+
+        // --since: lower bound on the source anchor date, read by the app's
+        // source generator via config('billing-engine.seed.tickets_since').
+        // Lets a backlog be seeded in ranges (one run per range, idempotent:
+        // re-running with an older date adds only the newly covered rows).
+        if ($this->option('since')) {
+            $since = Clock::parse($this->option('since'));
+            config(['billing-engine.seed.tickets_since' => $since->toDateTimeString()]);
+            $this->info("Source lower bound (since): {$since->toDateTimeString()}");
+        }
 
         if (!app()->bound('billing.seedSource')) {
             $this->error("No 'billing.seedSource' provider bound. See examples/AppServiceProviderWiring.php.");
@@ -127,6 +138,7 @@ class SeedScheduleCommand extends Command
 
         $this->flush($buffer, $dryRun, $stats);
 
+        $stats['overdue_spread'] = $overdue; // pending rows already past due, spread across --spread-hours
         $this->table(['metric', 'count'], collect($stats)->map(fn ($v, $k) => [$k, $v])->values());
 
         if ($this->option('refresh-meta')) {
