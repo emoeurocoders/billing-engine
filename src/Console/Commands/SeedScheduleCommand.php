@@ -90,9 +90,14 @@ class SeedScheduleCommand extends Command
                 $stats['pending']++;
             }
 
-            // Spread the genuine backlog so a run doesn't flood the gateway.
+            // Spread the genuine backlog so a run doesn't flood the gateway:
+            // uniform random offset across the --spread-hours window. (The
+            // previous `($overdue++ * $spread) % $spread` was always 0, so every
+            // overdue row landed at now+0..300s and the whole backlog fired at
+            // once — seen on the 2026-08-19 sports seed.)
             if ($status === BillingSchedule::STATUS_PENDING && $dueAt->lessThan($now)) {
-                $dueAt = $now->copy()->addSeconds(($overdue++ * $spread) % $spread + random_int(0, 300));
+                $overdue++;
+                $dueAt = $now->copy()->addSeconds(random_int(0, $spread));
             }
 
             // Key: explicit per-auth (one-shot) else the per-cycle rebill key.
